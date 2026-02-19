@@ -1,35 +1,40 @@
 import amqp from "amqplib";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+
 dotenv.config();
 
 export const startSendOtpConsumer = async () => {
-  try {
-    const connection = await amqp.connect({
-      protocol: "amqp",
-      hostname: process.env.Rabbitmq_Host,
-      port: 5672,
-      username: process.env.Rabbitmq_Username,
-      password: process.env.Rabbitmq_Password,
-    });
+  const maxRetries = 10;
+  let attempts = 0;
 
-    const channel = await connection.createChannel();
+  while (attempts < maxRetries) {
+    try {
+      const connection = await amqp.connect({
+        protocol: "amqp",
+        hostname: process.env.Rabbitmq_Host,
+        port: 5672,
+        username: process.env.Rabbitmq_Username,
+        password: process.env.Rabbitmq_Password,
+      });
 
-    const queueName = "send-otp";
+      const channel = await connection.createChannel();
 
-    await channel.assertQueue(queueName, { durable: true });
+      const queueName = "send-otp";
+      await channel.assertQueue(queueName, { durable: true });
 
-    console.log("✅ Mail Service consumer started, listening for otp emails");
+      console.log("Mail Service consumer started, listening for otp emails");
 
-    channel.consume(queueName, async (msg) => {
-      if (msg) {
+      channel.consume(queueName, async (msg) => {
+        if (!msg) return;
+
         try {
           const { to, subject, body } = JSON.parse(msg.content.toString());
 
           const transporter = nodemailer.createTransport({
             host: "smtp.gmail.com",
             port: 465,
-            secure: true, //for aws
+            secure: true,
             auth: {
               user: process.env.USER,
               pass: process.env.PASSWORD,
@@ -48,9 +53,17 @@ export const startSendOtpConsumer = async () => {
         } catch (error) {
           console.log("Failed to send otp", error);
         }
-      }
-    });
-  } catch (error) {
-    console.log("Failed to start rabbitmq consumer", error);
+      });
+
+      return;
+    } catch (error) {
+      attempts++;
+      console.log(
+        `Failed to start rabbitmq consumer. Retry ${attempts}/${maxRetries}`,
+      );
+      await new Promise((res) => setTimeout(res, 5000));
+    }
   }
+
+  console.log("Could not connect to RabbitMQ after retries");
 };

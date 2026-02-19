@@ -1,0 +1,74 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: surya
+      RABBITMQ_DEFAULT_PASS: Surya@850
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    restart: always
+    ports:
+      - "5000:5000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+    env_file:
+      - ./user-service/.env
+
+  chat-service:
+    build: ./chat-service
+    container_name: chat-service
+    restart: always
+    ports:
+      - "5002:5002"
+    depends_on:
+      - mongo
+      - user-service
+    env_file:
+      - ./chat-service/.env
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    restart: always
+    ports:
+      - "5001:5001"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    env_file:
+      - ./notification-service/.env
+
+volumes:
+  mongo_data:

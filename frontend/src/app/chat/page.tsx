@@ -1,7 +1,7 @@
 "use client";
 import ChatSidebar from "@/components/ChatSidebar";
 import Loading from "@/components/Loading";
-import { chat_service, useAppData, User } from "@/context/AppContext";
+import { API_BASE, useAppData, User } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
@@ -66,7 +66,7 @@ const ChatApp = () => {
     const token = Cookies.get("token");
     try {
       const { data } = await axios.get(
-        `${chat_service}/api/v1/message/${selectedUser}`,
+        `${API_BASE}/api/v1/message/${selectedUser}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -146,7 +146,7 @@ const ChatApp = () => {
     try {
       const token = Cookies.get("token");
       const { data } = await axios.post(
-        `${chat_service}/api/v1/chat/new`,
+        `${API_BASE}/api/v1/chat/new`,
         {
           userId: loggedInUser?._id,
           otherUserId: u._id,
@@ -173,7 +173,6 @@ const ChatApp = () => {
 
     if (!selectedUser) return;
 
-    // socket work
     if (typingTimeOut) {
       clearTimeout(typingTimeOut);
       setTypingTimeOut(null);
@@ -200,7 +199,7 @@ const ChatApp = () => {
       }
 
       const { data } = await axios.post(
-        `${chat_service}/api/v1/message`,
+        `${API_BASE}/api/v1/message`,
         formData,
         {
           headers: {
@@ -244,7 +243,6 @@ const ChatApp = () => {
 
     if (!selectedUser || !socket) return;
 
-    // socket setup
     if (value.trim()) {
       socket.emit("typing", {
         chatId: selectedUser,

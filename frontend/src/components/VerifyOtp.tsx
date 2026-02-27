@@ -4,7 +4,7 @@ import { ArrowRight, ChevronLeft, Loader2, Lock } from "lucide-react";
 import { redirect, useRouter, useSearchParams } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import Cookies from "js-cookie";
-import { useAppData, user_service } from "@/context/AppContext";
+import { useAppData, API_BASE } from "@/context/AppContext";
 import Loading from "./Loading";
 import toast from "react-hot-toast";
 
@@ -81,7 +81,7 @@ const VerifyOtp = () => {
     setLoading(true);
 
     try {
-      const { data } = await axios.post(`${user_service}/api/v1/verify`, {
+      const { data } = await axios.post(`${API_BASE}/api/v1/verify`, {
         email,
         otp: otpString,
       });
@@ -110,7 +110,7 @@ const VerifyOtp = () => {
     setResendLoading(true);
     setError("");
     try {
-      const { data } = await axios.post(`${user_service}/api/v1/login`, {
+      const { data } = await axios.post(`${API_BASE}/api/v1/login`, {
         email,
       });
       toast.success(data.message);

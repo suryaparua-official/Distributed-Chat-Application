@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { io, Socket } from "socket.io-client";
-import { chat_service, useAppData } from "./AppContext";
+import { API_BASE, useAppData } from "./AppContext";
 
 interface SocketContextType {
   socket: Socket | null;
@@ -32,7 +32,7 @@ export const SocketProvider = ({ children }: ProviderProps) => {
   useEffect(() => {
     if (!user?._id) return;
 
-    const newSocket = io(chat_service, {
+    const newSocket = io(API_BASE, {
       query: {
         userId: user._id,
       },

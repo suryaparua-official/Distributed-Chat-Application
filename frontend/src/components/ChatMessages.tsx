@@ -77,7 +77,7 @@ const ChatMessages = ({
 
                     {/* Text */}
                     {e.text && (
-                      <p className="whitespace-pre-wrap break-words">
+                      <p className="whitespace-pre-wrap wrap-break-words">
                         {e.text}
                       </p>
                     )}

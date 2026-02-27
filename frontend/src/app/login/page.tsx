@@ -1,6 +1,6 @@
 "use client";
 import Loading from "@/components/Loading";
-import { useAppData, user_service } from "@/context/AppContext";
+import { useAppData, API_BASE } from "@/context/AppContext";
 import axios from "axios";
 import { ArrowRight, Loader2, Mail } from "lucide-react";
 import { redirect, useRouter } from "next/navigation";
@@ -21,7 +21,7 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      const { data } = await axios.post(`${user_service}/api/v1/login`, {
+      const { data } = await axios.post(`${API_BASE}/api/v1/login`, {
         email,
       });
 

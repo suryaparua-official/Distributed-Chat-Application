@@ -1,5 +1,5 @@
 "use client";
-import { useAppData, user_service } from "@/context/AppContext";
+import { useAppData, API_BASE } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import Cookies from "js-cookie";
@@ -27,7 +27,7 @@ const ProfilePage = () => {
 
     try {
       const { data } = await axios.post(
-        `${user_service}/api/v1/update/user`,
+        `${API_BASE}/api/v1/update/user`,
         { name },
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -74,7 +74,7 @@ const ProfilePage = () => {
         {/* Avatar Section */}
         <div className="flex flex-col items-center text-center">
           <div className="relative">
-            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#2a3942] to-[#202c33] flex items-center justify-center shadow-lg">
+            <div className="w-32 h-32 rounded-full bg-linear-to-br from-[#2a3942] to-[#202c33] flex items-center justify-center shadow-lg">
               <UserCircle className="w-20 h-20 text-gray-300" />
             </div>
             <span className="absolute bottom-3 right-3 w-5 h-5 bg-[#00a884] rounded-full border-4 border-[#111b21]" />

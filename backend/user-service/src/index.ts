@@ -10,13 +10,13 @@ dotenv.config();
 
 connectDb();
 
-connectRabbitMQ();
+await connectRabbitMQ();
 
 export const redisClient = createClient({
   url: process.env.REDIS_URL,
 });
 
-redisClient
+await redisClient
   .connect()
   .then(() => console.log("connected to redis"))
   .catch(console.error);
@@ -26,7 +26,7 @@ const app = express();
 app.use(express.json());
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: ["http://localhost:3000", "http://localhost:8080"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   }),

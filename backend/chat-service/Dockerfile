@@ -1,13 +1,25 @@
-FROM node:20-alpine
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
+
 RUN npm install
 
-COPY . .
+COPY tsconfig.json ./
+
+COPY src ./src
+
 RUN npm run build
 
-EXPOSE 5002
+FROM node:22-alpine 
 
-CMD ["node", "dist/index.js"]
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install --only=production
+
+COPY --from=builder /app/dist ./dist
+
+CMD [ "node", "dist/index.js" ]

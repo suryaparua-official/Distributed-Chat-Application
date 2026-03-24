@@ -28,7 +28,9 @@ const LoginPage = () => {
       toast.success(data.message);
       router.push(`/verify?email=${email}`);
     } catch (error: any) {
-      toast.error(error.response.data.message);
+      toast.error(
+        error.response.data.message || "Server error. Please try again later.",
+      );
     } finally {
       setLoading(false);
     }

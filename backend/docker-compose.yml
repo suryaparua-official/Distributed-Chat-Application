@@ -30,6 +30,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
   user-service:
     build: ./user-service
     container_name: user-service
@@ -69,6 +70,16 @@ services:
         condition: service_healthy
     env_file:
       - ./notification-service/.env
+
+  nginx:
+    build: ./nginx
+    container_name: nginx-gateway
+    ports:
+      - "8081:8080"
+    depends_on:
+      - user-service
+      - chat-service
+      - notification-service
 
 volumes:
   mongo_data:

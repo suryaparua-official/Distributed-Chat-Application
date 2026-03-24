@@ -1,0 +1,76 @@
+name: Full DevSecOps Pipeline
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: |
+          cd backend/user-service && npm install || true
+          cd ../chat-service && npm install || true
+          cd ../notification-service && npm install || true
+
+      - name: OWASP Scan
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "chat-app"
+          path: "."
+          format: "HTML"
+
+      - name: Sonar Scan
+        uses: SonarSource/sonarqube-scan-action@v2
+        with:
+          args: >
+            -Dsonar.projectKey=chat-app
+            -Dsonar.organization=YOUR_ORG
+            -Dsonar.sources=.
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Docker Login
+        run: echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+
+      - name: Build Images
+        run: |
+          docker build -t $DOCKER_USERNAME/user-service:latest ./backend/user-service
+          docker build -t $DOCKER_USERNAME/chat-service:latest ./backend/chat-service
+          docker build -t $DOCKER_USERNAME/notification-service:latest ./backend/notification-service
+          docker build -t $DOCKER_USERNAME/nginx-gateway:latest ./backend/nginx
+
+      - name: Trivy Scan User
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_USERNAME }}/user-service:latest
+
+      - name: Trivy Scan Chat
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_USERNAME }}/chat-service:latest
+
+      - name: Trivy Scan Notification
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_USERNAME }}/notification-service:latest
+
+      - name: Push Images
+        run: |
+          docker push $DOCKER_USERNAME/user-service:latest
+          docker push $DOCKER_USERNAME/chat-service:latest
+          docker push $DOCKER_USERNAME/notification-service:latest
+          docker push $DOCKER_USERNAME/nginx-gateway:latest

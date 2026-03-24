@@ -38,7 +38,7 @@ jobs:
         with:
           args: >
             -Dsonar.projectKey=Distributed-Chat-Application
-            -Dsonar.organization=YOUR_ORG
+            -Dsonar.organization=suryaparua-official
             -Dsonar.sources=.
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

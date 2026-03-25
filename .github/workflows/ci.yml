@@ -46,7 +46,7 @@ jobs:
         uses: SonarSource/sonarcloud-github-action@v2
         with:
           args: >
-            -Dsonar.projectKey=Distributed-Chat-Application
+            -Dsonar.projectKey=suryaparua-official_Distributed-Chat-Application
             -Dsonar.organization=suryaparua-official
             -Dsonar.sources=.
         env:

@@ -15,3 +15,9 @@ variable "mongo_uri" {
   type        = string
   sensitive   = true
 }
+
+variable "aws_account_id" {
+  description = "AWS Account ID"
+  type        = string
+  default     = "335651423655"
+}

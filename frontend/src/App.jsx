@@ -2,7 +2,7 @@ import React from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
 
-const ENDPOINT = "http://localhost:3000";
+const ENDPOINT = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000";
 const socket = io(ENDPOINT, {
   transports: ["websocket"],
   reconnection: true,

@@ -19,8 +19,12 @@ app.use(express.json());
 app.use(cors());
 app.use("/chat", ServeChat);
 
-app.get("/", (req, res) => {
-  res.send(`<h1>SChat Backend — ${SERVER_NAME}</h1>`);
+// app.get("/", (req, res) => {
+//   res.send(`<h1>SChat Backend — ${SERVER_NAME}</h1>`);
+// });
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", server: SERVER_NAME });
 });
 
 // ── Redis setup ────────────────────────────────────────────
@@ -137,3 +141,10 @@ Promise.all([
     );
   })
   .catch((err) => console.log("Redis error:", err.message));
+
+// Serve frontend static files
+const path = require("path");
+app.use(express.static(path.join(__dirname, "frontend/dist")));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend/dist/index.html"));
+});

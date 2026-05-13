@@ -17,3 +17,13 @@ output "redis_host" {
   description = "ElastiCache Redis host"
   value       = aws_elasticache_cluster.redis.cache_nodes[0].address
 }
+
+output "cloudfront_url" {
+  description = "Frontend CloudFront URL"
+  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+}
+
+output "s3_bucket_name" {
+  description = "S3 bucket name for frontend"
+  value       = aws_s3_bucket.frontend.bucket
+}

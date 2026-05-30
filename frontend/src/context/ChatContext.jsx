@@ -10,7 +10,7 @@ import { io } from "socket.io-client";
 import { api, tokenStore } from "../api";
 import { useAuth } from "./AuthContext";
 
-const ENDPOINT = import.meta.env.VITE_BACKEND_URL || "";
+const ENDPOINT = (import.meta.env.VITE_BACKEND_URL || "").trim();
 
 const ChatContext = createContext(null);
 
@@ -20,15 +20,26 @@ function dmId(a, b) {
 }
 
 const AVATAR_COLORS = [
-  "#e57373", "#f06292", "#ba68c8", "#9575cd",
-  "#7986cb", "#64b5f6", "#4fc3f7", "#4dd0e1",
-  "#4db6ac", "#81c784", "#aed581", "#ff8a65",
-  "#a1887f", "#90a4ae",
+  "#e57373",
+  "#f06292",
+  "#ba68c8",
+  "#9575cd",
+  "#7986cb",
+  "#64b5f6",
+  "#4fc3f7",
+  "#4dd0e1",
+  "#4db6ac",
+  "#81c784",
+  "#aed581",
+  "#ff8a65",
+  "#a1887f",
+  "#90a4ae",
 ];
 
 export function avatarColor(str = "") {
   let hash = 0;
-  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < str.length; i++)
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
@@ -49,10 +60,10 @@ export function formatDate(dateStr) {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (isNaN(d)) return "";
-  const today     = new Date();
+  const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  if (d.toDateString() === today.toDateString())     return "Today";
+  if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
@@ -71,74 +82,99 @@ function dedup(msgs) {
 export function ChatProvider({ children }) {
   const { user: authUser, logout: authLogout } = useAuth();
   const phone = authUser?.phone ?? null;
-  const name  = authUser?.name  ?? null;
+  const name = authUser?.name ?? null;
 
   // ── Chat state ─────────────────────────────────────────
-  const [status,        setStatus]        = useState("disconnected");
-  const [rooms,         setRooms]         = useState([]);
+  const [status, setStatus] = useState("disconnected");
+  const [rooms, setRooms] = useState([]);
   const [conversations, setConversations] = useState({});
-  const [activeId,      setActiveId]      = useState(null);
-  const [typingUsers,   setTypingUsers]   = useState({});
-  const [contacts,      setContacts]      = useState({});
+  const [activeId, setActiveId] = useState(null);
+  const [typingUsers, setTypingUsers] = useState({});
+  const [contacts, setContacts] = useState({});
 
   // ── Status state ───────────────────────────────────────
   // { [phone]: StatusItem[] }
-  const [statuses,           setStatuses]           = useState({});
+  const [statuses, setStatuses] = useState({});
   const [viewingStatusPhone, setViewingStatusPhone] = useState(null);
-  const [creatingStatus,     setCreatingStatus]     = useState(false);
+  const [creatingStatus, setCreatingStatus] = useState(false);
 
   // ── Message deletion state (persisted per user) ──────────
   const [deletedForMe, setDeletedForMe] = useState(new Set());
-  const [clearedAt,    setClearedAt]    = useState({});  // { convId: timestamp }
+  const [clearedAt, setClearedAt] = useState({}); // { convId: timestamp }
 
   // ── Persist deletedForMe / clearedAt per user in localStorage ──
   useEffect(() => {
-    if (!phone) { setDeletedForMe(new Set()); setClearedAt({}); return; }
+    if (!phone) {
+      setDeletedForMe(new Set());
+      setClearedAt({});
+      return;
+    }
     try {
       const dm = localStorage.getItem(`schat:dfm:${phone}`);
       if (dm) setDeletedForMe(new Set(JSON.parse(dm)));
       const ca = localStorage.getItem(`schat:ca:${phone}`);
       if (ca) setClearedAt(JSON.parse(ca));
-    } catch { /* corrupt storage — start fresh */ }
+    } catch {
+      /* corrupt storage — start fresh */
+    }
   }, [phone]);
 
   useEffect(() => {
     if (!phone) return;
-    try { localStorage.setItem(`schat:dfm:${phone}`, JSON.stringify([...deletedForMe])); } catch {}
+    try {
+      localStorage.setItem(
+        `schat:dfm:${phone}`,
+        JSON.stringify([...deletedForMe]),
+      );
+    } catch {}
   }, [deletedForMe, phone]);
 
   useEffect(() => {
     if (!phone) return;
-    try { localStorage.setItem(`schat:ca:${phone}`, JSON.stringify(clearedAt)); } catch {}
+    try {
+      localStorage.setItem(`schat:ca:${phone}`, JSON.stringify(clearedAt));
+    } catch {}
   }, [clearedAt, phone]);
 
   // ── Call state ─────────────────────────────────────────
-  const [callState,    setCallState]    = useState("idle");
-  const [callType,     setCallType]     = useState(null);
-  const [callPeer,     setCallPeer]     = useState(null);
-  const [localStream,  setLocalStream]  = useState(null);
+  const [callState, setCallState] = useState("idle");
+  const [callType, setCallType] = useState(null);
+  const [callPeer, setCallPeer] = useState(null);
+  const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
-  const [isMuted,      setIsMuted]      = useState(false);
-  const [isVideoOff,   setIsVideoOff]   = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
 
   // ── Refs ───────────────────────────────────────────────
-  const socketRef         = useRef(null);
-  const activeRef         = useRef(null);
-  const conversationsRef  = useRef({});
-  const typingTimers      = useRef({});
-  const callStateRef      = useRef("idle");
-  const callPeerRef       = useRef(null);
-  const callTypeRef       = useRef(null);
-  const localStreamRef    = useRef(null);
-  const pcRef             = useRef(null);
-  const cleanupFnRef      = useRef(() => {});
+  const socketRef = useRef(null);
+  const activeRef = useRef(null);
+  const conversationsRef = useRef({});
+  const typingTimers = useRef({});
+  const callStateRef = useRef("idle");
+  const callPeerRef = useRef(null);
+  const callTypeRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const pcRef = useRef(null);
+  const cleanupFnRef = useRef(() => {});
 
-  useEffect(() => { activeRef.current       = activeId;       }, [activeId]);
-  useEffect(() => { conversationsRef.current = conversations;  }, [conversations]);
-  useEffect(() => { callStateRef.current    = callState;      }, [callState]);
-  useEffect(() => { callPeerRef.current     = callPeer;       }, [callPeer]);
-  useEffect(() => { callTypeRef.current     = callType;       }, [callType]);
-  useEffect(() => { localStreamRef.current  = localStream;    }, [localStream]);
+  useEffect(() => {
+    activeRef.current = activeId;
+  }, [activeId]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+  useEffect(() => {
+    callPeerRef.current = callPeer;
+  }, [callPeer]);
+  useEffect(() => {
+    callTypeRef.current = callType;
+  }, [callType]);
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
 
   // ── Socket + call lifecycle ────────────────────────────
   useEffect(() => {
@@ -154,7 +190,7 @@ export function ChatProvider({ children }) {
     setStatus("connecting");
 
     const socket = io(ENDPOINT, {
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       auth: { token: tokenStore.get() },
       reconnection: true,
       reconnectionAttempts: 10,
@@ -166,7 +202,10 @@ export function ChatProvider({ children }) {
     // ── WebRTC helpers ──────────────────────────────────
 
     function cleanupCall() {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
         localStreamRef.current = null;
@@ -179,8 +218,8 @@ export function ChatProvider({ children }) {
       setIsMuted(false);
       setIsVideoOff(false);
       callStateRef.current = "idle";
-      callPeerRef.current  = null;
-      callTypeRef.current  = null;
+      callPeerRef.current = null;
+      callTypeRef.current = null;
     }
     cleanupFnRef.current = cleanupCall;
 
@@ -194,13 +233,22 @@ export function ChatProvider({ children }) {
       });
       pcRef.current = pc;
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate) socket.emit("call:ice-candidate", { toPhone, candidate: candidate.toJSON() });
+        if (candidate)
+          socket.emit("call:ice-candidate", {
+            toPhone,
+            candidate: candidate.toJSON(),
+          });
       };
-      pc.ontrack = ({ streams }) => { if (streams[0]) setRemoteStream(streams[0]); };
+      pc.ontrack = ({ streams }) => {
+        if (streams[0]) setRemoteStream(streams[0]);
+      };
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "connected") {
-          setCallState("active"); callStateRef.current = "active";
-        } else if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
+          setCallState("active");
+          callStateRef.current = "active";
+        } else if (
+          ["disconnected", "failed", "closed"].includes(pc.connectionState)
+        ) {
           cleanupCall();
         }
       };
@@ -208,7 +256,10 @@ export function ChatProvider({ children }) {
     }
 
     async function getMedia(cType) {
-      return navigator.mediaDevices.getUserMedia({ audio: true, video: cType === "video" });
+      return navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: cType === "video",
+      });
     }
 
     // ── connect ─────────────────────────────────────────
@@ -242,15 +293,20 @@ export function ChatProvider({ children }) {
           const dmConvs = {};
           Object.entries(byPartner).forEach(([partnerPhone, msgs]) => {
             const id = dmId(phone, partnerPhone);
-            const sorted = [...msgs].sort((a, b) => new Date(a.time) - new Date(b.time));
+            const sorted = [...msgs].sort(
+              (a, b) => new Date(a.time) - new Date(b.time),
+            );
             const partnerMsg = sorted.find((m) => m.user === partnerPhone);
             const partnerName = partnerMsg?.senderName || partnerPhone;
             dmConvs[id] = {
-              id, type: "dm",
-              name: partnerName, phone: partnerPhone,
+              id,
+              type: "dm",
+              name: partnerName,
+              phone: partnerPhone,
               messages: dedup(sorted),
               lastMessage: sorted[sorted.length - 1] || null,
-              users: [], unread: 0,
+              users: [],
+              unread: 0,
             };
           });
           setConversations((prev) => ({ ...prev, ...dmConvs }));
@@ -260,7 +316,7 @@ export function ChatProvider({ children }) {
       }
     });
 
-    socket.on("disconnect",    () => setStatus("disconnected"));
+    socket.on("disconnect", () => setStatus("disconnected"));
     socket.on("connect_error", async (err) => {
       setStatus("disconnected");
       if (!/token|auth|unauthorized/i.test(err.message)) return;
@@ -284,11 +340,14 @@ export function ChatProvider({ children }) {
         groups.forEach((g) => {
           next[g.name] = {
             ...(next[g.name] || {}),
-            id: g.name, type: "room", name: g.name,
-            creator: g.creator, allMembers: g.members,
+            id: g.name,
+            type: "room",
+            name: g.name,
+            creator: g.creator,
+            allMembers: g.members,
             messages: next[g.name]?.messages || [],
-            users:    next[g.name]?.users    || [],
-            unread:   next[g.name]?.unread   || 0,
+            users: next[g.name]?.users || [],
+            unread: next[g.name]?.unread || 0,
             lastMessage: next[g.name]?.lastMessage || null,
           };
         });
@@ -300,15 +359,25 @@ export function ChatProvider({ children }) {
         groups.map(async (g) => {
           try {
             const res = await api.post(`${ENDPOINT}/chat`, { room: g.name });
-            return { name: g.name, messages: dedup(res.data), lastMessage: res.data[res.data.length - 1] || null };
-          } catch { return null; }
-        })
+            return {
+              name: g.name,
+              messages: dedup(res.data),
+              lastMessage: res.data[res.data.length - 1] || null,
+            };
+          } catch {
+            return null;
+          }
+        }),
       );
       setConversations((prev) => {
         const next = { ...prev };
         histories.forEach((h) => {
           if (h && next[h.name]) {
-            next[h.name] = { ...next[h.name], messages: h.messages, lastMessage: h.lastMessage };
+            next[h.name] = {
+              ...next[h.name],
+              messages: h.messages,
+              lastMessage: h.lastMessage,
+            };
           }
         });
         return next;
@@ -322,7 +391,11 @@ export function ChatProvider({ children }) {
         if (!prev[group.name]) return prev;
         return {
           ...prev,
-          [group.name]: { ...prev[group.name], creator: group.creator, allMembers: group.members },
+          [group.name]: {
+            ...prev[group.name],
+            creator: group.creator,
+            allMembers: group.members,
+          },
         };
       });
     });
@@ -356,7 +429,9 @@ export function ChatProvider({ children }) {
       });
       setContacts((prev) => {
         const next = { ...prev };
-        users.forEach(({ phone: p, name: n }) => { next[p] = n; });
+        users.forEach(({ phone: p, name: n }) => {
+          next[p] = n;
+        });
         return next;
       });
     });
@@ -377,10 +452,15 @@ export function ChatProvider({ children }) {
           return {
             ...prev,
             [convId]: {
-              id: convId, type: "dm",
-              name:  msg.user !== phone ? (msg.senderName || msg.user) : msg.toUser,
+              id: convId,
+              type: "dm",
+              name:
+                msg.user !== phone ? msg.senderName || msg.user : msg.toUser,
               phone: msg.user !== phone ? msg.user : msg.toUser,
-              messages: [], users: [], unread: 0, lastMessage: null,
+              messages: [],
+              users: [],
+              unread: 0,
+              lastMessage: null,
             },
           };
         });
@@ -393,7 +473,8 @@ export function ChatProvider({ children }) {
         const conv = prev[convId];
         if (!conv) return prev;
         const key = `${msg.time}|${msg.user}|${msg.data}`;
-        if (conv.messages.some((m) => `${m.time}|${m.user}|${m.data}` === key)) return prev;
+        if (conv.messages.some((m) => `${m.time}|${m.user}|${m.data}` === key))
+          return prev;
         const isActive = activeRef.current === convId;
         return {
           ...prev,
@@ -414,15 +495,20 @@ export function ChatProvider({ children }) {
         const next = { ...prev };
         for (const convId in next) {
           const conv = next[convId];
-          const idx  = conv.messages.findIndex((m) => m.msgId === msgId);
+          const idx = conv.messages.findIndex((m) => m.msgId === msgId);
           if (idx >= 0) {
-            const msgs  = [...conv.messages];
-            msgs[idx]   = { ...msgs[idx], deletedForEveryone: true, data: "" };
+            const msgs = [...conv.messages];
+            msgs[idx] = { ...msgs[idx], deletedForEveryone: true, data: "" };
             // Also sync lastMessage so sidebar preview updates
-            const newLastMessage = conv.lastMessage?.msgId === msgId
-              ? { ...conv.lastMessage, deletedForEveryone: true, data: "" }
-              : conv.lastMessage;
-            next[convId] = { ...conv, messages: msgs, lastMessage: newLastMessage };
+            const newLastMessage =
+              conv.lastMessage?.msgId === msgId
+                ? { ...conv.lastMessage, deletedForEveryone: true, data: "" }
+                : conv.lastMessage;
+            next[convId] = {
+              ...conv,
+              messages: msgs,
+              lastMessage: newLastMessage,
+            };
             break;
           }
         }
@@ -461,9 +547,14 @@ export function ChatProvider({ children }) {
     // ── typing ────────────────────────────────────────────
     socket.on("typing", (raw) => {
       try {
-        const { user: tPhone, senderName: tName, room, typing } = JSON.parse(raw);
+        const {
+          user: tPhone,
+          senderName: tName,
+          room,
+          typing,
+        } = JSON.parse(raw);
         if (!room) return;
-        const timerKey   = `${room}:${tPhone}`;
+        const timerKey = `${room}:${tPhone}`;
         const displayName = tName || tPhone;
         setTypingUsers((prev) => {
           const ct = { ...(prev[room] || {}) };
@@ -471,7 +562,8 @@ export function ChatProvider({ children }) {
           else ct[displayName] = Date.now();
           return { ...prev, [room]: ct };
         });
-        if (typingTimers.current[timerKey]) clearTimeout(typingTimers.current[timerKey]);
+        if (typingTimers.current[timerKey])
+          clearTimeout(typingTimers.current[timerKey]);
         typingTimers.current[timerKey] = setTimeout(() => {
           setTypingUsers((prev) => {
             const ct = { ...(prev[room] || {}) };
@@ -479,7 +571,9 @@ export function ChatProvider({ children }) {
             return { ...prev, [room]: ct };
           });
         }, 3500);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
 
     socket.on("error", (e) => console.error("Socket error:", e));
@@ -501,20 +595,29 @@ export function ChatProvider({ children }) {
         return;
       }
       const peer = { phone: fromPhone, name: fromName };
-      setCallState("incoming"); setCallType(cType); setCallPeer(peer);
-      callStateRef.current = "incoming"; callPeerRef.current = peer; callTypeRef.current = cType;
+      setCallState("incoming");
+      setCallType(cType);
+      setCallPeer(peer);
+      callStateRef.current = "incoming";
+      callPeerRef.current = peer;
+      callTypeRef.current = cType;
     });
 
     socket.on("call:accepted", async ({ fromPhone }) => {
-      setCallState("connecting"); callStateRef.current = "connecting";
+      setCallState("connecting");
+      callStateRef.current = "connecting";
       try {
         const stream = await getMedia(callTypeRef.current);
-        setLocalStream(stream); localStreamRef.current = stream;
+        setLocalStream(stream);
+        localStreamRef.current = stream;
         const pc = createPeerConnection(fromPhone);
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socket.emit("call:offer", { toPhone: fromPhone, offer: pc.localDescription });
+        socket.emit("call:offer", {
+          toPhone: fromPhone,
+          offer: pc.localDescription,
+        });
       } catch (err) {
         console.error("Offer creation failed:", err);
         socket.emit("call:end", { toPhone: fromPhone });
@@ -523,16 +626,21 @@ export function ChatProvider({ children }) {
     });
 
     socket.on("call:offer", async ({ fromPhone, offer }) => {
-      setCallState("connecting"); callStateRef.current = "connecting";
+      setCallState("connecting");
+      callStateRef.current = "connecting";
       try {
         const stream = await getMedia(callTypeRef.current);
-        setLocalStream(stream); localStreamRef.current = stream;
+        setLocalStream(stream);
+        localStreamRef.current = stream;
         const pc = createPeerConnection(fromPhone);
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.emit("call:answer", { toPhone: fromPhone, answer: pc.localDescription });
+        socket.emit("call:answer", {
+          toPhone: fromPhone,
+          answer: pc.localDescription,
+        });
       } catch (err) {
         console.error("Answer creation failed:", err);
         socket.emit("call:end", { toPhone: fromPhone });
@@ -542,28 +650,51 @@ export function ChatProvider({ children }) {
 
     socket.on("call:answer", async ({ answer }) => {
       try {
-        if (pcRef.current) await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-      } catch (err) { console.error("Set remote description failed:", err); }
+        if (pcRef.current)
+          await pcRef.current.setRemoteDescription(
+            new RTCSessionDescription(answer),
+          );
+      } catch (err) {
+        console.error("Set remote description failed:", err);
+      }
     });
 
     socket.on("call:ice-candidate", async ({ candidate }) => {
       try {
-        if (pcRef.current && candidate) await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch { /* ICE errors are usually non-fatal */ }
+        if (pcRef.current && candidate)
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch {
+        /* ICE errors are usually non-fatal */
+      }
     });
 
-    socket.on("call:rejected",    () => {
-      cleanupCall(); setCallState("rejected"); callStateRef.current = "rejected";
-      setTimeout(() => { setCallState("idle"); callStateRef.current = "idle"; }, 2500);
+    socket.on("call:rejected", () => {
+      cleanupCall();
+      setCallState("rejected");
+      callStateRef.current = "rejected";
+      setTimeout(() => {
+        setCallState("idle");
+        callStateRef.current = "idle";
+      }, 2500);
     });
-    socket.on("call:ended",       () => cleanupCall());
-    socket.on("call:busy",        () => {
-      cleanupCall(); setCallState("busy"); callStateRef.current = "busy";
-      setTimeout(() => { setCallState("idle"); callStateRef.current = "idle"; }, 2500);
+    socket.on("call:ended", () => cleanupCall());
+    socket.on("call:busy", () => {
+      cleanupCall();
+      setCallState("busy");
+      callStateRef.current = "busy";
+      setTimeout(() => {
+        setCallState("idle");
+        callStateRef.current = "idle";
+      }, 2500);
     });
     socket.on("call:unavailable", () => {
-      cleanupCall(); setCallState("unavailable"); callStateRef.current = "unavailable";
-      setTimeout(() => { setCallState("idle"); callStateRef.current = "idle"; }, 2500);
+      cleanupCall();
+      setCallState("unavailable");
+      callStateRef.current = "unavailable";
+      setTimeout(() => {
+        setCallState("idle");
+        callStateRef.current = "idle";
+      }, 2500);
     });
 
     return () => {
@@ -577,7 +708,10 @@ export function ChatProvider({ children }) {
   // ── Chat actions ───────────────────────────────────────
 
   const logout = useCallback(async () => {
-    if (socketRef.current) { socketRef.current.disconnect(); socketRef.current = null; }
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
     setConversations({});
     setRooms([]);
     setActiveId(null);
@@ -586,42 +720,62 @@ export function ChatProvider({ children }) {
   }, [authLogout]);
 
   // createGroup — emits "join" (server creates group if name is available)
-  const createGroup = useCallback(async (roomName) => {
-    if (!socketRef.current || !phone || !roomName.trim()) return;
-    const n = roomName.trim();
+  const createGroup = useCallback(
+    async (roomName) => {
+      if (!socketRef.current || !phone || !roomName.trim()) return;
+      const n = roomName.trim();
 
-    // Optimistic stub so the sidebar shows immediately
-    setConversations((prev) => ({
-      ...prev,
-      [n]: prev[n] || { id: n, type: "room", name: n, messages: [], users: [], unread: 0, lastMessage: null },
-    }));
-    activeRef.current = n;
-    setActiveId(n);
-
-    // Server validates: creates if new, rejects if exists and caller is not a member
-    socketRef.current.emit("join", JSON.stringify({ room: n }));
-
-    try {
-      const res = await api.post("/chat", { room: n });
+      // Optimistic stub so the sidebar shows immediately
       setConversations((prev) => ({
         ...prev,
-        [n]: {
-          ...(prev[n] || { id: n, type: "room", name: n, users: [], unread: 0 }),
-          messages: dedup(res.data),
-          lastMessage: res.data[res.data.length - 1] || null,
+        [n]: prev[n] || {
+          id: n,
+          type: "room",
+          name: n,
+          messages: [],
+          users: [],
+          unread: 0,
+          lastMessage: null,
         },
       }));
-    } catch (e) {
-      console.error("Room history failed:", e.message);
-    }
-  }, [phone, name]);
+      activeRef.current = n;
+      setActiveId(n);
+
+      // Server validates: creates if new, rejects if exists and caller is not a member
+      socketRef.current.emit("join", JSON.stringify({ room: n }));
+
+      try {
+        const res = await api.post("/chat", { room: n });
+        setConversations((prev) => ({
+          ...prev,
+          [n]: {
+            ...(prev[n] || {
+              id: n,
+              type: "room",
+              name: n,
+              users: [],
+              unread: 0,
+            }),
+            messages: dedup(res.data),
+            lastMessage: res.data[res.data.length - 1] || null,
+          },
+        }));
+      } catch (e) {
+        console.error("Room history failed:", e.message);
+      }
+    },
+    [phone, name],
+  );
 
   // joinRoom kept as alias so any existing callers still work
   const joinRoom = createGroup;
 
   const addMember = useCallback((roomName, memberPhone) => {
     if (!socketRef.current || !roomName || !memberPhone) return;
-    socketRef.current.emit("group:addMember", JSON.stringify({ room: roomName, memberPhone }));
+    socketRef.current.emit(
+      "group:addMember",
+      JSON.stringify({ room: roomName, memberPhone }),
+    );
   }, []);
 
   const leaveGroup = useCallback((roomName) => {
@@ -644,62 +798,97 @@ export function ChatProvider({ children }) {
     socketRef.current.emit("group:delete", JSON.stringify({ room: roomName }));
   }, []);
 
-  const openDM = useCallback(async (targetPhone, targetName) => {
-    if (!phone || !targetPhone || targetPhone === phone) return;
-    const convId = dmId(phone, targetPhone);
-    const displayName = targetName || contacts[targetPhone] || targetPhone;
+  const openDM = useCallback(
+    async (targetPhone, targetName) => {
+      if (!phone || !targetPhone || targetPhone === phone) return;
+      const convId = dmId(phone, targetPhone);
+      const displayName = targetName || contacts[targetPhone] || targetPhone;
 
-    if (targetName) setContacts((prev) => ({ ...prev, [targetPhone]: targetName }));
+      if (targetName)
+        setContacts((prev) => ({ ...prev, [targetPhone]: targetName }));
 
-    activeRef.current = convId;
-    setConversations((prev) => ({
-      ...prev,
-      [convId]: prev[convId] || {
-        id: convId, type: "dm",
-        name: displayName, phone: targetPhone,
-        messages: [], users: [], unread: 0, lastMessage: null,
-      },
-    }));
-    setActiveId(convId);
-
-    try {
-      const res = await api.post(`${ENDPOINT}/chat/dm`, {});
-      const filtered = res.data.filter(
-        (m) =>
-          (m.user === phone && m.toUser === targetPhone) ||
-          (m.user === targetPhone && m.toUser === phone)
-      );
+      activeRef.current = convId;
       setConversations((prev) => ({
         ...prev,
-        [convId]: {
-          ...(prev[convId] || { id: convId, type: "dm", name: displayName, phone: targetPhone, users: [], unread: 0 }),
-          messages: dedup(filtered),
-          lastMessage: filtered[filtered.length - 1] || null,
+        [convId]: prev[convId] || {
+          id: convId,
+          type: "dm",
+          name: displayName,
+          phone: targetPhone,
+          messages: [],
+          users: [],
+          unread: 0,
+          lastMessage: null,
         },
       }));
-    } catch (e) {
-      console.error("DM history failed:", e.message);
-    }
-  }, [phone, contacts]);
+      setActiveId(convId);
 
-  const sendMessage = useCallback(({ content, toUser, room }) => {
-    if (!socketRef.current || !content?.trim()) return;
-    const isUnicast = Boolean(toUser);
-    socketRef.current.emit("message", JSON.stringify({
-      time: new Date().toISOString(),
-      user: phone, senderName: name,
-      room: room || "",
-      data: content.trim(),
-      type: "text",
-      unicast: isUnicast,
-      toUser: toUser || "",
-    }));
-  }, [phone, name]);
+      try {
+        const res = await api.post(`${ENDPOINT}/chat/dm`, {});
+        const msgs = Array.isArray(res.data) ? res.data : [];
+        const filtered = msgs.filter(
+          (m) =>
+            (m.user === phone && m.toUser === targetPhone) ||
+            (m.user === targetPhone && m.toUser === phone),
+        );
+        setConversations((prev) => ({
+          ...prev,
+          [convId]: {
+            ...(prev[convId] || {
+              id: convId,
+              type: "dm",
+              name: displayName,
+              phone: targetPhone,
+              users: [],
+              unread: 0,
+            }),
+            messages: dedup(filtered),
+            lastMessage: filtered[filtered.length - 1] || null,
+          },
+        }));
+      } catch (e) {
+        console.error("DM history failed:", e.message);
+      }
+    },
+    [phone, contacts],
+  );
 
-  const sendTyping = useCallback((room, isTyping) => {
-    if (!socketRef.current || !room) return;
-    socketRef.current.emit("typing", JSON.stringify({ user: phone, senderName: name, room, typing: isTyping }));
-  }, [phone, name]);
+  const sendMessage = useCallback(
+    ({ content, toUser, room }) => {
+      if (!socketRef.current || !content?.trim()) return;
+      const isUnicast = Boolean(toUser);
+      socketRef.current.emit(
+        "message",
+        JSON.stringify({
+          time: new Date().toISOString(),
+          user: phone,
+          senderName: name,
+          room: room || "",
+          data: content.trim(),
+          type: "text",
+          unicast: isUnicast,
+          toUser: toUser || "",
+        }),
+      );
+    },
+    [phone, name],
+  );
+
+  const sendTyping = useCallback(
+    (room, isTyping) => {
+      if (!socketRef.current || !room) return;
+      socketRef.current.emit(
+        "typing",
+        JSON.stringify({
+          user: phone,
+          senderName: name,
+          room,
+          typing: isTyping,
+        }),
+      );
+    },
+    [phone, name],
+  );
 
   const selectConversation = useCallback((id) => {
     activeRef.current = id;
@@ -713,7 +902,9 @@ export function ChatProvider({ children }) {
   }, []);
 
   const lookupUser = useCallback(async (lookupPhone) => {
-    const res = await api.get(`/users/lookup?phone=${encodeURIComponent(lookupPhone.trim())}`);
+    const res = await api.get(
+      `/users/lookup?phone=${encodeURIComponent(lookupPhone.trim())}`,
+    );
     return res.data;
   }, []);
 
@@ -727,12 +918,15 @@ export function ChatProvider({ children }) {
     }
     if (!socketRef.current) return;
     const conv = conversationsRef.current[convId];
-    socketRef.current.emit("message:delete", JSON.stringify({
-      msgId,
-      scope: "everyone",
-      room:   conv?.type === "room" ? conv.name   : undefined,
-      toUser: conv?.type === "dm"   ? conv.phone  : undefined,
-    }));
+    socketRef.current.emit(
+      "message:delete",
+      JSON.stringify({
+        msgId,
+        scope: "everyone",
+        room: conv?.type === "room" ? conv.name : undefined,
+        toUser: conv?.type === "dm" ? conv.phone : undefined,
+      }),
+    );
   }, []);
 
   const clearChat = useCallback((convId) => {
@@ -743,7 +937,10 @@ export function ChatProvider({ children }) {
 
   const postStatus = useCallback((content) => {
     if (!socketRef.current || !content?.trim()) return;
-    socketRef.current.emit("status:post", JSON.stringify({ content: content.trim() }));
+    socketRef.current.emit(
+      "status:post",
+      JSON.stringify({ content: content.trim() }),
+    );
   }, []);
 
   const viewStatus = useCallback((statusPhone) => {
@@ -754,60 +951,82 @@ export function ChatProvider({ children }) {
     setViewingStatusPhone(null);
   }, []);
 
-  const markStatusViewed = useCallback((statusId) => {
-    if (!socketRef.current) return;
-    socketRef.current.emit("status:view", JSON.stringify({ statusId }));
-    setStatuses((prev) => {
-      const next = { ...prev };
-      for (const p in next) {
-        next[p] = next[p].map((s) =>
-          s._id === statusId
-            ? { ...s, viewedBy: [...(s.viewedBy || []), phone] }
-            : s
-        );
-      }
-      return next;
-    });
-  }, [phone]);
+  const markStatusViewed = useCallback(
+    (statusId) => {
+      if (!socketRef.current) return;
+      socketRef.current.emit("status:view", JSON.stringify({ statusId }));
+      setStatuses((prev) => {
+        const next = { ...prev };
+        for (const p in next) {
+          next[p] = next[p].map((s) =>
+            s._id === statusId
+              ? { ...s, viewedBy: [...(s.viewedBy || []), phone] }
+              : s,
+          );
+        }
+        return next;
+      });
+    },
+    [phone],
+  );
 
   // ── Call actions ───────────────────────────────────────
 
   const initiateCall = useCallback((peerPhone, peerName, cType) => {
     if (!socketRef.current || callStateRef.current !== "idle") return;
     const peer = { phone: peerPhone, name: peerName };
-    setCallState("calling"); setCallType(cType); setCallPeer(peer);
-    callStateRef.current = "calling"; callPeerRef.current = peer; callTypeRef.current = cType;
-    socketRef.current.emit("call:initiate", { toPhone: peerPhone, callType: cType });
+    setCallState("calling");
+    setCallType(cType);
+    setCallPeer(peer);
+    callStateRef.current = "calling";
+    callPeerRef.current = peer;
+    callTypeRef.current = cType;
+    socketRef.current.emit("call:initiate", {
+      toPhone: peerPhone,
+      callType: cType,
+    });
   }, []);
 
   const acceptCall = useCallback(() => {
     if (!socketRef.current || !callPeerRef.current) return;
-    socketRef.current.emit("call:accept", { toPhone: callPeerRef.current.phone });
-    setCallState("connecting"); callStateRef.current = "connecting";
+    socketRef.current.emit("call:accept", {
+      toPhone: callPeerRef.current.phone,
+    });
+    setCallState("connecting");
+    callStateRef.current = "connecting";
   }, []);
 
   const rejectCall = useCallback(() => {
     if (!socketRef.current || !callPeerRef.current) return;
-    socketRef.current.emit("call:reject", { toPhone: callPeerRef.current.phone });
+    socketRef.current.emit("call:reject", {
+      toPhone: callPeerRef.current.phone,
+    });
     cleanupFnRef.current();
   }, []);
 
   const endCall = useCallback(() => {
     if (!callPeerRef.current) return;
-    if (socketRef.current) socketRef.current.emit("call:end", { toPhone: callPeerRef.current.phone });
+    if (socketRef.current)
+      socketRef.current.emit("call:end", {
+        toPhone: callPeerRef.current.phone,
+      });
     cleanupFnRef.current();
   }, []);
 
   const toggleMute = useCallback(() => {
     if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
+      localStreamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = !t.enabled;
+      });
       setIsMuted((m) => !m);
     }
   }, []);
 
   const toggleVideo = useCallback(() => {
     if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach((t) => { t.enabled = !t.enabled; });
+      localStreamRef.current.getVideoTracks().forEach((t) => {
+        t.enabled = !t.enabled;
+      });
       setIsVideoOff((v) => !v);
     }
   }, []);
@@ -817,24 +1036,59 @@ export function ChatProvider({ children }) {
     user: name,
     phone,
     // chat state
-    status, rooms, conversations, activeId, typingUsers, contacts,
+    status,
+    rooms,
+    conversations,
+    activeId,
+    typingUsers,
+    contacts,
     // deletion/clear
-    deletedForMe, clearedAt,
+    deletedForMe,
+    clearedAt,
     // helpers
-    formatTime, formatDate, avatarColor, avatarInitials,
+    formatTime,
+    formatDate,
+    avatarColor,
+    avatarInitials,
     // chat actions
-    logout, joinRoom, createGroup, leaveGroup, deleteGroup, addMember, openDM,
-    sendMessage, sendTyping, selectConversation, lookupUser,
-    deleteMessage, clearChat,
+    logout,
+    joinRoom,
+    createGroup,
+    leaveGroup,
+    deleteGroup,
+    addMember,
+    openDM,
+    sendMessage,
+    sendTyping,
+    selectConversation,
+    lookupUser,
+    deleteMessage,
+    clearChat,
     // status state
-    statuses, viewingStatusPhone, creatingStatus,
+    statuses,
+    viewingStatusPhone,
+    creatingStatus,
     // status actions
-    postStatus, viewStatus, closeStatusViewer, markStatusViewed,
+    postStatus,
+    viewStatus,
+    closeStatusViewer,
+    markStatusViewed,
     setCreatingStatus,
     // call state
-    callState, callType, callPeer, localStream, remoteStream, isMuted, isVideoOff,
+    callState,
+    callType,
+    callPeer,
+    localStream,
+    remoteStream,
+    isMuted,
+    isVideoOff,
     // call actions
-    initiateCall, acceptCall, rejectCall, endCall, toggleMute, toggleVideo,
+    initiateCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+    toggleMute,
+    toggleVideo,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

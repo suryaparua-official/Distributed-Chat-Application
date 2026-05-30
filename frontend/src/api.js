@@ -1,14 +1,20 @@
 import axios from "axios";
 
-const ENDPOINT = import.meta.env.VITE_BACKEND_URL || "";
+const ENDPOINT = (import.meta.env.VITE_BACKEND_URL || "").trim();
 
 // Module-level token store — lives outside React to avoid circular dependencies
 // between AuthContext (which sets it) and axios interceptors (which read it).
 export const tokenStore = {
   _t: null,
-  set(t) { this._t = t; },
-  get() { return this._t; },
-  clear() { this._t = null; },
+  set(t) {
+    this._t = t;
+  },
+  get() {
+    return this._t;
+  },
+  clear() {
+    this._t = null;
+  },
 };
 
 export const api = axios.create({
@@ -43,7 +49,9 @@ api.interceptors.response.use(
             tokenStore.set(r.data.token);
             return r.data.token;
           })
-          .finally(() => { refreshPromise = null; });
+          .finally(() => {
+            refreshPromise = null;
+          });
       }
       try {
         const newToken = await refreshPromise;
@@ -56,5 +64,5 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(err);
-  }
+  },
 );

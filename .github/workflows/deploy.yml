@@ -112,6 +112,8 @@ jobs:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
           CLOUDFRONT_URL: ${{ secrets.CLOUDFRONT_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
         run: |
           NEW_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
@@ -119,16 +121,21 @@ jobs:
              --arg MONGO    "$MONGO_URI" \
              --arg REDIS    "$REDIS_URL" \
              --arg CORS     "$CLOUDFRONT_URL" \
+             --arg JWT      "$JWT_SECRET" \
+             --arg JWTR     "$JWT_REFRESH_SECRET" \
              --arg CONTAINER "${{ env.CONTAINER_NAME }}" \
           '
           .containerDefinitions |= map(
             if .name == $CONTAINER then
               .image = $IMAGE |
               .environment = [
-                { name: "PORT",          value: "8080"  },
-                { name: "MONGO_URI",     value: $MONGO  },
-                { name: "REDIS_URL",     value: $REDIS  },
-                { name: "CORS_ORIGINS",  value: $CORS   }
+                { name: "PORT",               value: "8080"  },
+                { name: "MONGO_URI",          value: $MONGO  },
+                { name: "REDIS_URL",          value: $REDIS  },
+                { name: "CORS_ORIGINS",       value: $CORS   },
+                { name: "NODE_ENV",           value: "production" },
+                { name: "JWT_SECRET",         value: $JWT    },
+                { name: "JWT_REFRESH_SECRET", value: $JWTR   }
               ]
             else . end
           ) |

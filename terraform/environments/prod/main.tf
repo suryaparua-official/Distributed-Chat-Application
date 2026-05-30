@@ -6,7 +6,7 @@ terraform {
 
     aws = {
 
-      source = "hashicorp/aws"
+      source  = "hashicorp/aws"
 
       version = "~> 5.50"
     }
@@ -104,4 +104,6 @@ module "frontend" {
   source = "../../modules/frontend"
 
   project_name = var.project_name
+
+  alb_dns_name = module.alb.alb_dns_name
 }

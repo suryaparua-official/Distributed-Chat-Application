@@ -15,9 +15,13 @@ A production-grade distributed messaging system supporting direct messages, grou
 
 ---
 
-## Screenshots
+## Application Screenshots
 
-<!-- Add screenshots here: application home, login, chat interface, load test results, AWS console -->
+<img width="1902" height="858" alt="Screenshot 2026-05-30 165531" src="https://github.com/user-attachments/assets/8c8daf3c-d708-4cb8-bc6e-3ffaac11fabd" />
+
+<img width="1918" height="905" alt="Screenshot 2026-05-30 165347" src="https://github.com/user-attachments/assets/0a7bf9fe-7d31-4747-ba30-6b527654c23a" />
+
+<img width="1919" height="856" alt="Screenshot 2026-05-30 165631" src="https://github.com/user-attachments/assets/2b5c8c96-7287-412f-9a32-6a524d057a1c" />
 
 ---
 
@@ -143,6 +147,14 @@ data_received:  472 kB  (17 kB/s)
 data_sent:      161 kB  (5.7 kB/s)
 ```
 
+<img width="799" height="720" alt="Screenshot 2026-05-30 165932" src="https://github.com/user-attachments/assets/aa4b975e-7a83-41be-b121-44885ec08fb1" />
+
+<img width="822" height="746" alt="Screenshot 2026-05-30 165943" src="https://github.com/user-attachments/assets/69d03cf6-cc75-4883-810d-558c5f27b0bb" />
+
+<img width="869" height="169" alt="Screenshot 2026-05-30 165952" src="https://github.com/user-attachments/assets/81fdb079-67a0-4fca-8930-30ba429c4523" />
+
+
+
 Zero errors across 1448 requests. The 6s max is an initial TCP connection establishment; steady-state p95 was 88ms. Auto scaling did not trigger at this load level — the 50 VU health-check workload stayed well within the CPU threshold for the 2 running tasks.
 
 ---
@@ -216,6 +228,8 @@ git push main
           update-service                         |
           wait services-stable ---------------- +
 ```
+<img width="1916" height="608" alt="Screenshot 2026-05-30 154602" src="https://github.com/user-attachments/assets/b1141ec2-ad2e-4e36-9c23-192a60273213" />
+
 
 Secrets are injected at deploy time directly into the ECS task definition environment — no SSM Parameter Store dependency at runtime (Option A pattern). This eliminates IAM permissions needed for SSM reads inside the container and reduces cold-start latency.
 

@@ -1,299 +1,341 @@
-# 🚀 Distributed Real-Time Chat Application
+# Schat — Distributed Real-Time Chat Application
 
-A production-grade distributed real-time chat system built with Node.js and React, deployed on AWS using modern DevOps practices. Support Unicast, Multicast & Broadcast.
-
-![AWS](https://img.shields.io/badge/AWS-ECS_Fargate-orange?logo=amazon-aws)
-![Terraform](https://img.shields.io/badge/IaC-Terraform-purple?logo=terraform)
-![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-blue?logo=github-actions)
-![Redis](https://img.shields.io/badge/Cache-ElastiCache_Redis-red?logo=redis)
-![Docker](https://img.shields.io/badge/Container-Docker-blue?logo=docker)
+A production-grade distributed messaging system supporting direct messages, group chat, and broadcast — built with Node.js and React, deployed on AWS with full Infrastructure as Code and CI/CD automation.
 
 ---
 
-## 🏗️ Architecture
+## Live Deployment
+
+| Resource       | URL                                                             |
+| -------------- | --------------------------------------------------------------- |
+| Frontend (CDN) | https://d1mj9oo68irblk.cloudfront.net                           |
+| Backend (ALB)  | http://schat-alb-1427407801.ap-south-1.elb.amazonaws.com        |
+| Health Check   | http://schat-alb-1427407801.ap-south-1.elb.amazonaws.com/health |
+| AWS Region     | ap-south-1 (Mumbai)                                             |
+
+---
+
+## Screenshots
+
+<!-- Add screenshots here: application home, login, chat interface, load test results, AWS console -->
+
+---
+
+## Architecture
 
 ```
-Internet Users
-      ↓
-AWS Application Load Balancer (ALB)
-      ↓
-ECS Fargate (4 container instances)
-   ↓          ↓          ↓          ↓
- Task 1     Task 2     Task 3     Task 4
-      ↓
-ElastiCache Redis (Pub/Sub — syncs all containers)
-      ↓
-MongoDB Atlas (Chat history persistence)
-
-Frontend: React → S3 + CloudFront (CDN)
-Secrets:  AWS Parameter Store
-Logs:     CloudWatch
+                         Internet
+                             |
+                    CloudFront CDN
+                    /             \
+               S3 (React)     ALB (API + WebSocket)
+                                   |
+                    +--------------+--------------+
+                    |              |              |
+               ECS Task 1    ECS Task 2    ECS Task N
+               (Fargate)     (Fargate)     (Fargate)
+                    |              |              |
+                    +--------------+--------------+
+                                   |
+                    +--------------+--------------+
+                    |                             |
+             MongoDB Atlas                  Upstash Redis
+          (chat persistence)              (Pub/Sub messaging)
 ```
 
----
-
-## ✨ Features
-
-- **Real-time messaging** via WebSocket (Socket.IO)
-- **Group chat** — multiple users in named rooms
-- **Direct messages** — private unicast messaging
-- **Broadcast** — send to all connected users across all rooms
-- **Distributed architecture** — 4 ECS containers synced via Redis Pub/Sub
-- **Chat history** — persisted in MongoDB Atlas
-- **CDN-served frontend** — React app on S3 + CloudFront
+Every ECS task subscribes to Redis Pub/Sub channels. When a message arrives on any container, Redis broadcasts it to all other containers so every connected client receives it regardless of which container they are on.
 
 ---
 
-## 🛠️ Tech Stack
+## Features
+
+- Real-time messaging over WebSocket (Socket.IO) with automatic polling fallback
+- Direct messages (unicast) — private between two users
+- Group chat (multicast) — named rooms, creator-managed membership
+- Broadcast — system-wide messages to all connected users
+- Distributed pub/sub — multiple ECS containers stay in sync via Redis
+- Persistent chat history — all messages stored in MongoDB Atlas
+- Status updates — 12-hour expiring stories visible to all users
+- WebRTC voice and video calls — peer-to-peer via Socket.IO signaling
+- JWT authentication — 15-minute access tokens with 7-day rotating refresh tokens
+- Auto scaling — ECS service scales from 2 to 10 tasks based on CPU utilization
+- Zero-downtime deployments — rolling update via ECS deployment circuit breaker
+
+---
+
+## Tech Stack
 
 ### Application
 
-| Layer           | Technology                    |
-| --------------- | ----------------------------- |
-| Frontend        | React + Vite                  |
-| Backend         | Node.js + Express + Socket.IO |
-| Database        | MongoDB Atlas                 |
-| Cache / Pub-Sub | Redis (AWS ElastiCache)       |
+| Layer           | Technology                        |
+| --------------- | --------------------------------- |
+| Frontend        | React 18, Vite, Socket.IO client  |
+| Backend         | Node.js, Express, Socket.IO       |
+| Database        | MongoDB Atlas (Mongoose ODM)      |
+| Cache / Pub-Sub | Redis (Upstash, 4 client pool)    |
+| Auth            | JWT (access + refresh token pair) |
+| Real-time       | WebSocket with polling fallback   |
 
 ### AWS Infrastructure
 
-| Service         | Purpose                                      |
-| --------------- | -------------------------------------------- |
-| ECS Fargate     | Serverless container orchestration           |
-| ALB             | Load balancing + WebSocket support           |
-| ElastiCache     | Managed Redis for Pub/Sub                    |
-| ECR             | Docker image registry                        |
-| S3 + CloudFront | Frontend hosting + CDN                       |
-| Parameter Store | Secret management                            |
-| CloudWatch      | Logs, metrics, and alarms                    |
-| VPC             | Network isolation (public + private subnets) |
-| IAM             | Roles and least-privilege policies           |
-| NAT Gateway     | Private subnet outbound internet access      |
+| Service      | Configuration                                          |
+| ------------ | ------------------------------------------------------ |
+| ECS Fargate  | schat-cluster, desired=4, CPU=256, Memory=512          |
+| ALB          | schat-alb, target group port 8080, /health check       |
+| Auto Scaling | Min=2, Desired=4, Max=10, CPU threshold                |
+| ECR          | schat-backend, keeps last 3 images                     |
+| S3           | schat-frontend-335651423655, private, OAC-gated        |
+| CloudFront   | E1DBCSJUJFHEK5, API path forwarding to ALB             |
+| VPC          | 2 public subnets + 2 private subnets, 2 AZs            |
+| NAT Gateway  | Single NAT in ap-south-1a for private subnet egress    |
+| IAM          | Separate execution role and task role, least privilege |
+
+### CloudFront Path Routing
+
+| Path Pattern  | Origin | Purpose                  |
+| ------------- | ------ | ------------------------ |
+| /auth/\*      | ALB    | Authentication endpoints |
+| /chat/\*      | ALB    | Message history API      |
+| /users/\*     | ALB    | User search and lookup   |
+| /groups/\*    | ALB    | Group management         |
+| /status/\*    | ALB    | Status updates           |
+| /socket.io/\* | ALB    | WebSocket upgrade        |
+| /\*           | S3     | React SPA                |
+
+All ALB behaviors forward cookies and headers to support JWT cookie auth and WebSocket upgrades through HTTPS without mixed-content errors.
 
 ### DevOps
 
-| Tool           | Purpose                |
-| -------------- | ---------------------- |
-| Terraform      | Infrastructure as Code |
-| Docker         | Containerization       |
-| GitHub Actions | CI/CD pipeline         |
+| Tool           | Purpose                                    |
+| -------------- | ------------------------------------------ |
+| Terraform      | Modular IaC (modules/environments pattern) |
+| Docker         | Multi-stage build, backend only            |
+| GitHub Actions | Parallel CI/CD (frontend + backend jobs)   |
 
 ---
 
-## 📁 Project Structure
+## Load Test Results
+
+Tested with k6 against the ALB health endpoint simulating 50 concurrent users over 30 seconds.
+
+```
+Tool:           k6
+Target:         http://schat-alb-1427407801.ap-south-1.elb.amazonaws.com/health
+Virtual Users:  50
+Duration:       30s
+
+checks_total:       1448
+checks_succeeded:   1448  (100.00%)
+checks_failed:      0     (0.00%)
+
+http_reqs:          1448  @ 51.77 req/s
+http_req_failed:    0.00%
+
+http_req_duration:
+  avg:  102.81ms
+  min:  104.8µs
+  med:  51ms
+  max:  6s        (initial cold connection)
+  p90:  62.46ms
+  p95:  88.18ms
+
+data_received:  472 kB  (17 kB/s)
+data_sent:      161 kB  (5.7 kB/s)
+```
+
+Zero errors across 1448 requests. The 6s max is an initial TCP connection establishment; steady-state p95 was 88ms. Auto scaling did not trigger at this load level — the 50 VU health-check workload stayed well within the CPU threshold for the 2 running tasks.
+
+---
+
+## Project Structure
 
 ```
 .
-├── backend/                    # Node.js + Express + Socket.IO
-│   ├── app.js                  # Main server entry point
-│   ├── models/                 # MongoDB schemas
-│   ├── routes/                 # REST API routes
-│   └── Dockerfile
-├── frontend/                   # React + Vite
+├── backend/
+│   ├── app.js                  # Express server, Socket.IO, Redis subscribers
+│   ├── middleware/
+│   │   └── auth.js             # JWT verification middleware
+│   ├── models/
+│   │   ├── user.js             # User schema (phone-based identity)
+│   │   ├── chat.js             # Message schema (unicast + room)
+│   │   ├── group.js            # Group schema with member list
+│   │   └── status.js           # Status schema with TTL
+│   └── routes/
+│       ├── auth.js             # Register, login, refresh, logout
+│       ├── users.js            # User search
+│       ├── groups.js           # Group CRUD
+│       ├── serveChats.js       # Message history (group + DM)
+│       └── status.js           # Status fetch
+├── frontend/
 │   └── src/
-│       └── App.jsx
-├── terraform/                  # AWS Infrastructure (IaC)
-│   ├── main.tf                 # Provider configuration
-│   ├── variables.tf            # Input variables
-│   ├── vpc.tf                  # VPC, subnets, security groups
-│   ├── ecs.tf                  # ECS cluster, task, service
-│   ├── alb.tf                  # Application Load Balancer
-│   ├── ecr.tf                  # Docker image registry
-│   ├── elasticache.tf          # Redis cluster
-│   ├── iam.tf                  # Roles and policies
-│   ├── ssm.tf                  # Parameter Store secrets
-│   ├── cloudwatch.tf           # Logs and alarms
-│   ├── s3_cloudfront.tf        # Frontend CDN
-│   └── outputs.tf              # Output values
-├── Dockerfile                  # Root Dockerfile (bundles frontend + backend)
+│       ├── api.js              # Axios instance, token store, refresh interceptor
+│       ├── context/
+│       │   ├── AuthContext.jsx # Auth state, token scheduling
+│       │   └── ChatContext.jsx # Socket.IO, message state, all real-time events
+│       └── components/         # UI components
+├── terraform/
+│   ├── environments/
+│   │   └── prod/
+│   │       ├── main.tf         # Module wiring
+│   │       ├── variables.tf
+│   │       └── terraform.tfvars
+│   └── modules/
+│       ├── vpc/                # VPC, subnets, IGW, NAT, route tables
+│       ├── ecr/                # ECR repository with lifecycle policy
+│       ├── iam/                # ECS execution role + task role
+│       ├── alb/                # ALB, listener, target group
+│       ├── ecs/                # Cluster, task definition, service, auto scaling
+│       └── frontend/           # S3, OAC, CloudFront distribution
+├── Dockerfile                  # Backend-only image (frontend goes to S3)
 └── .github/
     └── workflows/
-        └── deploy.yml          # GitHub Actions CI/CD pipeline
+        └── deploy.yml          # Parallel frontend + backend deployment
 ```
 
 ---
 
-## 🚀 Deployment Guide
+## CI/CD Pipeline
+
+Every push to `main` triggers two parallel GitHub Actions jobs.
+
+```
+git push main
+    |
+    +-- Job 1: Frontend -------------------------+
+    |     npm install && npm run build           |
+    |     aws s3 sync dist/ → S3                 |
+    |     CloudFront invalidation (/*) --------- +
+    |
+    +-- Job 2: Backend --------------------------+
+          docker build -f Dockerfile .           |
+          docker push ECR :sha + :latest         |
+          describe-task-definition               |
+          inject image + MONGO_URI + REDIS_URL   |
+               + CORS_ORIGINS + JWT_SECRET       |
+          register-task-definition (new rev)     |
+          update-service                         |
+          wait services-stable ---------------- +
+```
+
+Secrets are injected at deploy time directly into the ECS task definition environment — no SSM Parameter Store dependency at runtime (Option A pattern). This eliminates IAM permissions needed for SSM reads inside the container and reduces cold-start latency.
+
+---
+
+## GitHub Actions Secrets
+
+| Secret                     | Description                                        |
+| -------------------------- | -------------------------------------------------- |
+| AWS_ACCESS_KEY_ID          | schat-deployer IAM user                            |
+| AWS_SECRET_ACCESS_KEY      | schat-deployer IAM user                            |
+| MONGO_URI                  | mongodb+srv://...@...mongodb.net/SChat             |
+| REDIS_URL                  | rediss://default:...@...upstash.io:6379            |
+| JWT_SECRET                 | Access token signing secret (HS256)                |
+| JWT_REFRESH_SECRET         | Refresh token signing secret (HS256)               |
+| VITE_BACKEND_URL           | Empty (space character — CloudFront relative URLs) |
+| CLOUDFRONT_URL             | https://d1mj9oo68irblk.cloudfront.net              |
+| CLOUDFRONT_DISTRIBUTION_ID | E1DBCSJUJFHEK5                                     |
+
+---
+
+## Deployment Guide
 
 ### Prerequisites
 
 - AWS CLI configured (`aws configure`)
-- Terraform >= 1.0
-- Docker Desktop
-- Node.js 18+
+- Terraform >= 1.5
+- Node.js 22
+- Docker
 
-### Step 1 — Infrastructure Setup
+### 1. Infrastructure
 
 ```bash
-# Clone the repository
-git clone https://github.com/suryaparua-official/Distributed-Chat-Application.git
-cd Distributed-Chat-Application
+git clone https://github.com/<your-handle>/Distributed-Chat-Application.git
+cd Distributed-Chat-Application/terraform/environments/prod
 
-# Create terraform.tfvars (never commit this file)
-cd terraform
-cat > terraform.tfvars <<EOF
-aws_region   = "ap-south-1"
-project_name = "schat"
-mongo_uri    = "mongodb+srv://<user>:<pass>@cluster.mongodb.net/SChat"
-EOF
+# Edit terraform.tfvars
+# project_name = "schat"
+# aws_region   = "ap-south-1"
 
-# Initialize and deploy
 terraform init
 terraform plan
 terraform apply
 ```
 
-### Step 2 — Build and Deploy Application
+### 2. GitHub Secrets
+
+Add all secrets listed in the table above to your repository under Settings > Secrets > Actions.
+
+Generate JWT secrets:
 
 ```bash
-# Login to ECR
-aws ecr get-login-password --region ap-south-1 | \
-  docker login --username AWS --password-stdin \
-  <account-id>.dkr.ecr.ap-south-1.amazonaws.com
-
-# Build frontend
-cd frontend && npm install && npm run build && cd ..
-
-# Build Docker image (bundles frontend + backend)
-docker build -t schat-app -f Dockerfile .
-docker tag schat-app:latest <ecr-url>:latest
-docker push <ecr-url>:latest
-
-# Force new ECS deployment
-aws ecs update-service \
-  --cluster schat-cluster \
-  --service schat-service \
-  --force-new-deployment \
-  --region ap-south-1
+openssl rand -hex 32   # JWT_SECRET
+openssl rand -hex 32   # JWT_REFRESH_SECRET
 ```
 
-### Step 3 — CI/CD (Automatic)
+### 3. Deploy
 
-Every push to `main` branch automatically triggers the GitHub Actions pipeline:
-
-```
+```bash
 git push origin main
-      ↓
-GitHub Actions
-      ↓
-1. Build React frontend
-2. Build Docker image (frontend + backend bundled)
-3. Push image to ECR (tagged with git SHA)
-4. Force new ECS deployment
-5. Wait for stable deployment
-      ↓
-Live on ALB URL ✅
 ```
 
-### Step 4 — Destroy Infrastructure
+The GitHub Actions pipeline deploys frontend and backend in parallel. Monitor progress under the Actions tab. ECS stabilization typically takes 2-3 minutes.
+
+### 4. Verify
 
 ```bash
-cd terraform
-# Empty ECR and S3 first
-aws ecr delete-repository --repository-name schat-app --force --region ap-south-1
-aws s3 rm s3://schat-frontend-<account-id> --recursive
+curl http://schat-alb-1427407801.ap-south-1.elb.amazonaws.com/health
+# {"status":"ok","server":"SCHAT","redis":"ok","mongodb":"ok"}
+```
 
+### 5. Destroy
+
+```bash
+# Empty S3 first
+aws s3 rm s3://schat-frontend-335651423655 --recursive --region ap-south-1
+
+cd terraform/environments/prod
 terraform destroy
 ```
 
 ---
 
-## 📊 System Design Decisions
+## System Design Notes
 
-### Why Redis Pub/Sub?
+### Why Redis Pub/Sub over a message queue?
 
-With 4 ECS container instances behind a load balancer, a user connected to Container-1 and another on Container-3 would not receive each other's messages without a message broker.
+With multiple ECS containers behind the ALB, Socket.IO connections are distributed across tasks. A message published by a user on Container 1 must reach a user connected to Container 3. Redis Pub/Sub provides sub-millisecond fanout across all subscribers with no message persistence overhead — appropriate for real-time delivery where durability is handled separately by MongoDB.
 
-Redis Pub/Sub solves this by broadcasting messages across all container instances in real time:
+The backend maintains four Redis clients per instance: one publisher and three dedicated subscribers (chat messages, room list updates, user presence). Sharing a client between pub and sub is not permitted in Redis once a client enters subscribe mode.
 
-```
-User A (Container-1)
-      ↓ publishes message
-   Redis channel
-      ↓ broadcasts to all subscribers
-Container-1, Container-2, Container-3, Container-4
-      ↓
-User B (Container-3) receives message ✅
-```
+### Why Option A for ECS secret injection?
 
-### Message Types
+The alternative (SSM Parameter Store at runtime) requires the ECS task to call SSM on startup, adds IAM permissions to the task role, increases cold-start time, and creates a hard dependency on SSM availability. Option A injects secrets as environment variables during the task definition registration step in CI/CD. The secrets live in GitHub Actions secrets (encrypted at rest) and are never stored in the repository or in SSM.
 
-| Type           | Description                 | Delivery               |
-| -------------- | --------------------------- | ---------------------- |
-| Group Message  | Sent to a named room        | All users in that room |
-| Direct Message | Sent to a specific username | That user only         |
-| Broadcast      | Sent to everyone            | All connected users    |
+### Token architecture
 
-### Network Architecture
+Access tokens expire in 15 minutes. The frontend schedules a silent refresh 60 seconds before expiry using `setTimeout`. A shared in-flight promise prevents thundering-herd on simultaneous 401s. Refresh tokens are stored as `httpOnly`, `secure`, `sameSite=none` cookies scoped to `/` and expire in 7 days. `sameSite=none` is required because CloudFront and ALB are on different domains — `strict` or `lax` would cause the browser to withhold the cookie on cross-site requests.
 
-```
-┌─────────────────────────────────────────┐
-│                  VPC                    │
-│  ┌──────────────┐  ┌──────────────┐    │
-│  │ Public Sub 1 │  │ Public Sub 2 │    │
-│  │    ALB       │  │    ALB       │    │
-│  └──────┬───────┘  └──────┬───────┘    │
-│         │                 │            │
-│  ┌──────▼───────┐  ┌──────▼───────┐    │
-│  │ Private Sub 1│  │ Private Sub 2│    │
-│  │  ECS Tasks   │  │  ECS Tasks   │    │
-│  │  ElastiCache │  │              │    │
-│  └──────────────┘  └──────────────┘    │
-│         ↓                              │
-│    NAT Gateway → Internet              │
-└─────────────────────────────────────────┘
-```
+### Network isolation
+
+ECS tasks run in private subnets with no inbound internet access. All traffic enters through the ALB in public subnets. Outbound internet access (for MongoDB Atlas and Upstash Redis) goes through a single NAT Gateway in ap-south-1a. Security groups restrict ECS tasks to accept traffic only from the ALB security group on port 8080.
 
 ---
 
-## 🔒 Security
+## Estimated AWS Cost
 
-- ECS tasks run in **private subnets** — not directly accessible from the internet
-- All inbound traffic flows through **ALB only**
-- Secrets stored in **AWS Parameter Store** (SecureString) — never in source code
-- **IAM roles** with least-privilege access per service
-- **Security groups** enforce strict traffic rules between services
-- ECR images scanned on push for vulnerabilities
+| Service                                 | Approx cost per day |
+| --------------------------------------- | ------------------- |
+| NAT Gateway                             | $1.08               |
+| ALB                                     | $0.60               |
+| ECS Fargate (4 tasks, CPU=256, Mem=512) | $0.50               |
+| CloudFront                              | negligible          |
+| S3                                      | negligible          |
+| **Total**                               | **~$2.20 / day**    |
 
----
-
-## 📈 Observability
-
-| What              | How                                      |
-| ----------------- | ---------------------------------------- |
-| Container logs    | CloudWatch Log Groups (`/ecs/schat`)     |
-| CPU usage         | CloudWatch Metric Alarm (threshold: 80%) |
-| Memory usage      | CloudWatch Metric Alarm (threshold: 80%) |
-| Health checks     | ALB Target Group `/health` endpoint      |
-| Deployment status | ECS service events                       |
+Run `terraform destroy` after testing to stop all charges. The NAT Gateway accounts for nearly half the daily cost.
 
 ---
 
-## 🔄 SRE Practices
-
-- **Health check endpoint** (`GET /health`) — ALB removes unhealthy containers automatically
-- **Desired count: 4** — high availability across 2 Availability Zones
-- **Rolling deployment** — zero downtime updates via ECS deployment circuit breaker
-- **Infrastructure as Code** — reproducible, version-controlled, auditable infrastructure
-- **Automated CI/CD** — every push to main triggers a full build and deploy
-- **Immutable infrastructure** — new Docker image per deployment (tagged with git SHA)
-- **Least-privilege IAM** — each service has only the permissions it needs
-
----
-
-## 🌐 GitHub Actions Secrets Required
-
-| Secret                  | Description                      |
-| ----------------------- | -------------------------------- |
-| `AWS_ACCESS_KEY_ID`     | IAM user access key              |
-| `AWS_SECRET_ACCESS_KEY` | IAM user secret key              |
-| `MONGO_URI`             | MongoDB Atlas connection string  |
-| `BACKEND_URL`           | ALB DNS name for frontend config |
-
----
-
-## 👤 Author
+## Author
 
 **Surya Parua**
-
-- GitHub: [@suryaparua-official](https://github.com/suryaparua-official)

@@ -1,4 +1,4 @@
-name: Deploy to AWS ECS
+name: Deploy to AWS
 
 on:
   push:
@@ -6,17 +6,22 @@ on:
 
 env:
   AWS_REGION: ap-south-1
-  ECR_REPOSITORY: schat-app
+  ECR_REPOSITORY: schat-backend
   ECS_CLUSTER: schat-cluster
   ECS_SERVICE: schat-service
+  TASK_FAMILY: schat-task
+  CONTAINER_NAME: schat-app
 
 jobs:
-  deploy:
-    name: Build and Deploy
+  # ────────────────────────────────────────────
+  # JOB 1 — Frontend → S3 + CloudFront
+  # ────────────────────────────────────────────
+  deploy-frontend:
+    name: Frontend → S3 + CloudFront
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -26,54 +31,138 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Build Frontend
+      - name: Build frontend
         working-directory: frontend
         env:
-          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: |
           npm install
           npm run build
 
-      - name: Build Docker image
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          echo "id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - name: Sync dist to S3
+        run: |
+          aws s3 sync frontend/dist/ \
+            s3://schat-frontend-${{ steps.account.outputs.id }}/ \
+            --delete \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Invalidate CloudFront cache
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(Origins.Items[0].DomainName,'schat-frontend')].Id" \
+            --output text)
+          aws cloudfront create-invalidation \
+            --distribution-id $DIST_ID \
+            --paths "/*"
+
+  # ────────────────────────────────────────────
+  # JOB 2 — Backend → ECR + ECS (Option A)
+  # ────────────────────────────────────────────
+  deploy-backend:
+    name: Backend → ECR + ECS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
             -f Dockerfile .
-
-      - name: Push to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Deploy to ECS
+      # ── Option A: describe → inject → register → deploy ──
+
+      - name: Get current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.TASK_FAMILY }} \
+            --query taskDefinition \
+            > task-def.json
+
+      - name: Inject image + secrets into task definition
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          CLOUDFRONT_URL: ${{ secrets.CLOUDFRONT_URL }}
+        run: |
+          NEW_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          jq --arg IMAGE    "$NEW_IMAGE" \
+             --arg MONGO    "$MONGO_URI" \
+             --arg REDIS    "$REDIS_URL" \
+             --arg CORS     "$CLOUDFRONT_URL" \
+             --arg CONTAINER "${{ env.CONTAINER_NAME }}" \
+          '
+          .containerDefinitions |= map(
+            if .name == $CONTAINER then
+              .image = $IMAGE |
+              .environment = [
+                { name: "PORT",          value: "8080"  },
+                { name: "MONGO_URI",     value: $MONGO  },
+                { name: "REDIS_URL",     value: $REDIS  },
+                { name: "CORS_ORIGINS",  value: $CORS   }
+              ]
+            else . end
+          ) |
+          del(.taskDefinitionArn, .revision, .status,
+              .requiresAttributes, .compatibilities,
+              .registeredAt, .registeredBy)
+          ' task-def.json > new-task-def.json
+
+      - name: Register new task definition revision
+        id: register
+        run: |
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+          echo "arn=$ARN" >> $GITHUB_OUTPUT
+
+      - name: Update ECS service
         run: |
           aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
+            --cluster  ${{ env.ECS_CLUSTER }} \
+            --service  ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.register.outputs.arn }} \
+            --region   ${{ env.AWS_REGION }}
 
-      - name: Wait for deployment
+      - name: Wait for stable
         run: |
           aws ecs wait services-stable \
-            --cluster ${{ env.ECS_CLUSTER }} \
+            --cluster  ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }} \
-            --region ${{ env.AWS_REGION }}
+            --region   ${{ env.AWS_REGION }}
 
-      - name: Deployment success
-        run: echo "✅ Deployment complete!"
+      - name: Done
+        run: echo "✅ Backend deployed!"

@@ -1,30 +1,30 @@
 "use strict";
 
-const path    = require("path");
+const path = require("path");
 const express = require("express");
 const socketio = require("socket.io");
-const http    = require("http");
-const redis   = require("redis");
-const cors    = require("cors");
+const http = require("http");
+const redis = require("redis");
+const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const jwt     = require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 
-const ChatModel   = require("./models/chat");
-const GroupModel  = require("./models/group");
+const ChatModel = require("./models/chat");
+const GroupModel = require("./models/group");
 const StatusModel = require("./models/status");
-const UserModel   = require("./models/user");
+const UserModel = require("./models/user");
 
-const ServeChat   = require("./routes/serveChats");
-const authRoutes  = require("./routes/auth");
+const ServeChat = require("./routes/serveChats");
+const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const groupsRoutes = require("./routes/groups");
 const statusRoutes = require("./routes/status");
 const authMiddleware = require("./middleware/auth");
 
 const SERVER_NAME = process.env.SERVER_NAME || "SCHAT";
-const PORT        = parseInt(process.env.PORT || "8080", 10);
-const STATUS_TTL  = 12 * 60 * 60 * 1000; // 12 h in ms
+const PORT = parseInt(process.env.PORT || "8080", 10);
+const STATUS_TTL = 12 * 60 * 60 * 1000;
 
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",")
@@ -39,9 +39,9 @@ const corsOptions = {
 };
 
 // ── Express + HTTP + Socket.IO ────────────────────────────
-const app        = express();
+const app = express();
 const httpServer = http.createServer(app);
-const io         = socketio(httpServer, {
+const io = socketio(httpServer, {
   cors: { origin: CORS_ORIGINS, credentials: true, methods: ["GET", "POST"] },
   pingTimeout: 60000,
   pingInterval: 25000,
@@ -52,55 +52,80 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 
 // ── Routes ────────────────────────────────────────────────
-app.use("/auth",   authRoutes);
-app.use("/chat",   authMiddleware, ServeChat);
-app.use("/users",  authMiddleware, usersRoutes);
+app.use("/auth", authRoutes);
+app.use("/chat", authMiddleware, ServeChat);
+app.use("/users", authMiddleware, usersRoutes);
 app.use("/groups", authMiddleware, groupsRoutes);
 app.use("/status", authMiddleware, statusRoutes);
 
 // ── Redis ─────────────────────────────────────────────────
-const redisConfig = {
-  socket: {
-    host: process.env.REDIS_HOST || "localhost",
-    port: parseInt(process.env.REDIS_PORT || "6379", 10),
-    reconnectStrategy: (r) => Math.min(r * 100, 3000),
-  },
-};
+// Supports both:
+//   REDIS_URL  = "rediss://default:pass@host.upstash.io:6379"  (Upstash)
+//   REDIS_HOST = "hostname"                                     (local / ElastiCache)
+const redisConfig = process.env.REDIS_URL
+  ? {
+      url: process.env.REDIS_URL,
+      socket: { reconnectStrategy: (r) => Math.min(r * 100, 3000) },
+    }
+  : {
+      socket: {
+        host: process.env.REDIS_HOST || "localhost",
+        port: parseInt(process.env.REDIS_PORT || "6379", 10),
+        reconnectStrategy: (r) => Math.min(r * 100, 3000),
+      },
+    };
 
-const publisher   = redis.createClient(redisConfig);
-const subscriber  = redis.createClient(redisConfig); // schat-chats
-const subscriber2 = redis.createClient(redisConfig); // schat-rooms
-const subscriber3 = redis.createClient(redisConfig); // schat-users
+const publisher = redis.createClient(redisConfig);
+const subscriber = redis.createClient(redisConfig);
+const subscriber2 = redis.createClient(redisConfig);
+const subscriber3 = redis.createClient(redisConfig);
 
-publisher.on("error",   (e) => console.error(`[${SERVER_NAME}] Redis pub:`,  e.message));
-subscriber.on("error",  (e) => console.error(`[${SERVER_NAME}] Redis sub1:`, e.message));
-subscriber2.on("error", (e) => console.error(`[${SERVER_NAME}] Redis sub2:`, e.message));
-subscriber3.on("error", (e) => console.error(`[${SERVER_NAME}] Redis sub3:`, e.message));
+publisher.on("error", (e) =>
+  console.error(`[${SERVER_NAME}] Redis pub:`, e.message),
+);
+subscriber.on("error", (e) =>
+  console.error(`[${SERVER_NAME}] Redis sub1:`, e.message),
+);
+subscriber2.on("error", (e) =>
+  console.error(`[${SERVER_NAME}] Redis sub2:`, e.message),
+);
+subscriber3.on("error", (e) =>
+  console.error(`[${SERVER_NAME}] Redis sub3:`, e.message),
+);
 
 // ── MongoDB ───────────────────────────────────────────────
+// Supports both MONGO_URI (new) and MONGO (old) env var names
 mongoose
-  .connect(process.env.MONGO || "mongodb://localhost:27017/SChat")
+  .connect(
+    process.env.MONGO_URI ||
+      process.env.MONGO ||
+      "mongodb://localhost:27017/SChat",
+  )
   .then(() => console.log(`[${SERVER_NAME}] MongoDB connected`))
   .catch((e) => console.error(`[${SERVER_NAME}] MongoDB error:`, e.message));
 
 // ── Health ────────────────────────────────────────────────
 app.get("/health", async (_req, res) => {
   let redisOk = false;
-  try { await publisher.ping(); redisOk = true; } catch { /* not ready */ }
+  try {
+    await publisher.ping();
+    redisOk = true;
+  } catch {
+    /* not ready */
+  }
   const mongoOk = mongoose.connection.readyState === 1;
-  const status  = redisOk && mongoOk ? "ok" : "degraded";
+  const status = redisOk && mongoOk ? "ok" : "degraded";
   res.status(status === "ok" ? 200 : 503).json({
-    status, server: SERVER_NAME,
+    status,
+    server: SERVER_NAME,
     redis: redisOk ? "ok" : "error",
     mongodb: mongoOk ? "ok" : "error",
   });
 });
 
 // ── In-memory routing ─────────────────────────────────────
-// { phone → socketId }  for DM/call routing
 const connections = {};
-// { socketId → { phone, name, rooms: Set<string> } }
-const socketMeta  = {};
+const socketMeta = {};
 
 // ── Socket.IO auth middleware ─────────────────────────────
 io.use((socket, next) => {
@@ -126,15 +151,16 @@ io.on("connection", async (socket) => {
   const { phone, name } = socket.user;
   console.log(`[${SERVER_NAME}] connect  ${socket.id} (${name})`);
 
-  // Register identity immediately (needed for DMs and calls on first connect)
-  connections[phone]       = socket.id;
-  socketMeta[socket.id]    = { phone, name, rooms: new Set() };
+  connections[phone] = socket.id;
+  socketMeta[socket.id] = { phone, name, rooms: new Set() };
 
   await publisher.hSet("schat:users", phone, name).catch(() => {});
 
-  // ── Auto-rejoin persistent group memberships ──────────
   try {
-    const userGroups = await GroupModel.find({ members: phone }, { __v: 0 }).lean();
+    const userGroups = await GroupModel.find(
+      { members: phone },
+      { __v: 0 },
+    ).lean();
     for (const g of userGroups) {
       socket.join(g.name);
       socketMeta[socket.id].rooms.add(g.name);
@@ -142,7 +168,6 @@ io.on("connection", async (socket) => {
       await publisher.lPush(`${g.name}_meta`, phone).catch(() => {});
     }
     socket.emit("myGroups", JSON.stringify(userGroups));
-    // Trigger online-user-list refresh for each group
     for (const g of userGroups) {
       await publisher.publish("schat-users", g.name).catch(() => {});
     }
@@ -150,27 +175,28 @@ io.on("connection", async (socket) => {
     console.error(`[${SERVER_NAME}] Group rejoin error:`, e.message);
   }
 
-  // Send global room list
   publisher
     .lRange("roomSCHAT", 0, -1)
     .then((rooms) => socket.emit("room", JSON.stringify(rooms)))
     .catch(() => {});
 
-  // ── create group (only creates new groups; existing groups require creator invite) ─
   socket.on("join", async (msg) => {
     try {
       const { room } = JSON.parse(msg);
-      if (!room) { socket.emit("error", { message: "room is required" }); return; }
+      if (!room) {
+        socket.emit("error", { message: "room is required" });
+        return;
+      }
 
       const existingGroup = await GroupModel.findOne({ name: room });
 
       if (existingGroup) {
         if (!existingGroup.members.includes(phone)) {
-          // User is not a member — reject self-join
-          socket.emit("error", { message: `"${room}" already exists. Ask the group creator to add you.` });
+          socket.emit("error", {
+            message: `"${room}" already exists. Ask the group creator to add you.`,
+          });
           return;
         }
-        // Already a member (e.g. rejoining in same session) — just refresh info
         socket.join(room);
         socketMeta[socket.id].rooms.add(room);
         await publisher.lRem(`${room}_meta`, 0, phone).catch(() => {});
@@ -180,7 +206,6 @@ io.on("connection", async (socket) => {
         return;
       }
 
-      // Group doesn't exist — create it, requester becomes creator
       socket.join(room);
       socketMeta[socket.id].rooms.add(room);
 
@@ -188,40 +213,62 @@ io.on("connection", async (socket) => {
       await publisher.lPush("roomSCHAT", room);
       await publisher.publish("schat-rooms", "1");
 
-      const newGroup = await GroupModel.create({ name: room, creator: phone, members: [phone] });
+      const newGroup = await GroupModel.create({
+        name: room,
+        creator: phone,
+        members: [phone],
+      });
 
       await publisher.lRem(`${room}_meta`, 0, phone);
       await publisher.lPush(`${room}_meta`, phone);
       await publisher.publish("schat-users", room);
 
-      // Server-generated "group created" system message
       const sysMsg = await new ChatModel({
-        time: new Date(), user: null, senderName: null,
-        room, data: `${name} created the group`, type: "system",
+        time: new Date(),
+        user: null,
+        senderName: null,
+        room,
+        data: `${name} created the group`,
+        type: "system",
       }).save();
-      await publisher.publish("schat-chats", JSON.stringify({
-        ...sysMsg.toObject(), _id: undefined, msgId: sysMsg._id.toString(),
-      }));
+      await publisher.publish(
+        "schat-chats",
+        JSON.stringify({
+          ...sysMsg.toObject(),
+          _id: undefined,
+          msgId: sysMsg._id.toString(),
+        }),
+      );
 
-      socket.emit("groupInfo", JSON.stringify({
-        _id: newGroup._id, name: room, creator: phone, members: [phone],
-      }));
+      socket.emit(
+        "groupInfo",
+        JSON.stringify({
+          _id: newGroup._id,
+          name: room,
+          creator: phone,
+          members: [phone],
+        }),
+      );
     } catch (err) {
       console.error(`[${SERVER_NAME}] join error:`, err.message);
       socket.emit("error", { message: "Failed to create group" });
     }
   });
 
-  // ── add member to group (creator only) ───────────────────
   socket.on("group:addMember", async (msg) => {
     try {
       const { room, memberPhone } = JSON.parse(msg);
       if (!room || !memberPhone) return;
 
       const group = await GroupModel.findOne({ name: room });
-      if (!group) { socket.emit("error", { message: "Group not found" }); return; }
+      if (!group) {
+        socket.emit("error", { message: "Group not found" });
+        return;
+      }
       if (group.creator !== phone) {
-        socket.emit("error", { message: "Only the group creator can add members" });
+        socket.emit("error", {
+          message: "Only the group creator can add members",
+        });
         return;
       }
       if (group.members.includes(memberPhone)) {
@@ -231,76 +278,96 @@ io.on("connection", async (socket) => {
 
       const targetUser = await UserModel.findOne({ phone: memberPhone });
       if (!targetUser) {
-        socket.emit("error", { message: "No account found with that phone number" });
+        socket.emit("error", {
+          message: "No account found with that phone number",
+        });
         return;
       }
 
-      await GroupModel.updateOne({ name: room }, { $push: { members: memberPhone } });
+      await GroupModel.updateOne(
+        { name: room },
+        { $push: { members: memberPhone } },
+      );
 
       await publisher.lRem(`${room}_meta`, 0, memberPhone).catch(() => {});
       await publisher.lPush(`${room}_meta`, memberPhone).catch(() => {});
       await publisher.publish("schat-users", room).catch(() => {});
 
-      // If target is online, join their socket to the room immediately
       const memberSid = connections[memberPhone];
       if (memberSid) {
         const memberSocket = io.sockets.sockets.get(memberSid);
         if (memberSocket) {
           memberSocket.join(room);
           if (socketMeta[memberSid]) socketMeta[memberSid].rooms.add(room);
-          const allGroups = await GroupModel.find({ members: memberPhone }, { __v: 0 }).lean();
+          const allGroups = await GroupModel.find(
+            { members: memberPhone },
+            { __v: 0 },
+          ).lean();
           memberSocket.emit("myGroups", JSON.stringify(allGroups));
         }
       }
 
-      // Notify everyone in the room of updated membership
-      const updated = await GroupModel.findOne({ name: room }, { __v: 0 }).lean();
+      const updated = await GroupModel.findOne(
+        { name: room },
+        { __v: 0 },
+      ).lean();
       io.to(room).emit("groupInfo", JSON.stringify(updated));
 
-      // System message
       const sysMsg = await new ChatModel({
-        time: new Date(), user: null, senderName: null,
-        room, data: `${targetUser.name} was added to the group`, type: "system",
+        time: new Date(),
+        user: null,
+        senderName: null,
+        room,
+        data: `${targetUser.name} was added to the group`,
+        type: "system",
       }).save();
-      await publisher.publish("schat-chats", JSON.stringify({
-        ...sysMsg.toObject(), _id: undefined, msgId: sysMsg._id.toString(),
-      }));
+      await publisher.publish(
+        "schat-chats",
+        JSON.stringify({
+          ...sysMsg.toObject(),
+          _id: undefined,
+          msgId: sysMsg._id.toString(),
+        }),
+      );
     } catch (err) {
       console.error(`[${SERVER_NAME}] group:addMember error:`, err.message);
       socket.emit("error", { message: "Failed to add member" });
     }
   });
 
-  // ── leave group ───────────────────────────────────────
   socket.on("group:leave", async (msg) => {
     try {
       const { room } = JSON.parse(msg);
       if (!room) return;
 
       const group = await GroupModel.findOne({ name: room });
-      if (!group) { socket.emit("group:left", { room }); return; }
+      if (!group) {
+        socket.emit("group:left", { room });
+        return;
+      }
 
       const newMembers = group.members.filter((m) => m !== phone);
 
       if (newMembers.length === 0) {
-        // Last member left — delete the group entirely
         await GroupModel.deleteOne({ name: room });
         await publisher.del(room);
         await publisher.lRem("roomSCHAT", 0, room);
         await publisher.del(`${room}_meta`);
         await publisher.publish("schat-rooms", "1");
       } else {
-        // Promote next member if creator is leaving
-        const newCreator = group.creator === phone ? newMembers[0] : group.creator;
-        await GroupModel.updateOne({ name: room }, {
-          members: newMembers,
-          creator: newCreator,
-        });
+        const newCreator =
+          group.creator === phone ? newMembers[0] : group.creator;
+        await GroupModel.updateOne(
+          { name: room },
+          { members: newMembers, creator: newCreator },
+        );
         await publisher.lRem(`${room}_meta`, 0, phone);
         await publisher.publish("schat-users", room);
 
-        // Notify remaining members of updated group info
-        const updated = await GroupModel.findOne({ name: room }, { __v: 0 }).lean();
+        const updated = await GroupModel.findOne(
+          { name: room },
+          { __v: 0 },
+        ).lean();
         io.to(room).emit("groupInfo", JSON.stringify(updated));
       }
 
@@ -313,20 +380,23 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // ── delete group (creator only) ───────────────────────
   socket.on("group:delete", async (msg) => {
     try {
       const { room } = JSON.parse(msg);
       if (!room) return;
 
       const group = await GroupModel.findOne({ name: room });
-      if (!group) { socket.emit("error", { message: "Group not found" }); return; }
+      if (!group) {
+        socket.emit("error", { message: "Group not found" });
+        return;
+      }
       if (group.creator !== phone) {
-        socket.emit("error", { message: "Only the group creator can delete this group" });
+        socket.emit("error", {
+          message: "Only the group creator can delete this group",
+        });
         return;
       }
 
-      // Notify all members before deleting
       io.to(room).emit("group:deleted", JSON.stringify({ room }));
 
       await GroupModel.deleteOne({ name: room });
@@ -340,25 +410,24 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // ── message ───────────────────────────────────────────
   socket.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg);
-      if (!data.data) { socket.emit("error", { message: "Invalid message" }); return; }
+      if (!data.data) {
+        socket.emit("error", { message: "Invalid message" });
+        return;
+      }
 
-      // Server enforces identity — no impersonation
-      data.user       = phone;
+      data.user = phone;
       data.senderName = name;
-      data.time       = data.time || new Date().toISOString();
+      data.time = data.time || new Date().toISOString();
 
-      // Save first to get a stable msgId
-      const saved  = await new ChatModel(data).save();
-      data.msgId   = saved._id.toString();
+      const saved = await new ChatModel(data).save();
+      data.msgId = saved._id.toString();
 
       const serialized = JSON.stringify(data);
       await publisher.publish("schat-chats", serialized);
 
-      // Echo back to sender for DMs (unicast messages aren't in a room)
       if (data.unicast) socket.emit("message", serialized);
     } catch (err) {
       console.error(`[${SERVER_NAME}] message error:`, err.message);
@@ -366,16 +435,20 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // ── delete message (delete-for-everyone only; "for me" is client-side) ─
   socket.on("message:delete", async (msg) => {
     try {
       const { msgId, scope, room, toUser } = JSON.parse(msg);
       if (scope !== "everyone") return;
 
       const chatMsg = await ChatModel.findById(msgId);
-      if (!chatMsg) { socket.emit("error", { message: "Message not found" }); return; }
+      if (!chatMsg) {
+        socket.emit("error", { message: "Message not found" });
+        return;
+      }
       if (chatMsg.user !== phone) {
-        socket.emit("error", { message: "Cannot delete another user's message" });
+        socket.emit("error", {
+          message: "Cannot delete another user's message",
+        });
         return;
       }
 
@@ -396,59 +469,62 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // ── status:post (creates a new status update) ─────────
   socket.on("status:post", async (msg) => {
     try {
       const { content } = JSON.parse(msg);
       if (!content?.trim() || content.trim().length > 700) return;
 
       const expiresAt = new Date(Date.now() + STATUS_TTL);
-      const status    = await StatusModel.create({
-        user:       phone,
+      const status = await StatusModel.create({
+        user: phone,
         senderName: name,
-        content:    content.trim(),
+        content: content.trim(),
         expiresAt,
       });
 
-      // Broadcast to all connected clients (including sender)
-      io.emit("status:new", JSON.stringify({
-        _id:        status._id.toString(),
-        user:       phone,
-        senderName: name,
-        content:    content.trim(),
-        createdAt:  status.createdAt,
-        expiresAt,
-        viewedBy:   [],
-      }));
+      io.emit(
+        "status:new",
+        JSON.stringify({
+          _id: status._id.toString(),
+          user: phone,
+          senderName: name,
+          content: content.trim(),
+          createdAt: status.createdAt,
+          expiresAt,
+          viewedBy: [],
+        }),
+      );
     } catch (err) {
       console.error(`[${SERVER_NAME}] status:post error:`, err.message);
     }
   });
 
-  // ── status:view ───────────────────────────────────────
   socket.on("status:view", async (msg) => {
     try {
       const { statusId } = JSON.parse(msg);
       const updated = await StatusModel.findByIdAndUpdate(
         statusId,
         { $addToSet: { viewedBy: phone } },
-        { new: true }
+        { new: true },
       ).lean();
       if (updated) {
-        // Notify the status owner so their viewer list updates in real-time
         const ownerSid = connections[updated.user];
         if (ownerSid) {
-          io.to(ownerSid).emit("status:viewed", JSON.stringify({
-            statusId: statusId.toString(),
-            viewerPhone: phone,
-            viewedBy: updated.viewedBy,
-          }));
+          io.to(ownerSid).emit(
+            "status:viewed",
+            JSON.stringify({
+              statusId: statusId.toString(),
+              viewerPhone: phone,
+              viewedBy: updated.viewedBy,
+            }),
+          );
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
-  // ── status:delete (owner only) ────────────────────────
   socket.on("status:delete", async (msg) => {
     try {
       const { statusId } = JSON.parse(msg);
@@ -456,27 +532,33 @@ io.on("connection", async (socket) => {
       const status = await StatusModel.findById(statusId);
       if (!status) return;
       if (status.user !== phone) {
-        socket.emit("error", { message: "Cannot delete someone else's status" });
+        socket.emit("error", {
+          message: "Cannot delete someone else's status",
+        });
         return;
       }
       await StatusModel.deleteOne({ _id: statusId });
-      io.emit("status:deleted", JSON.stringify({ statusId: statusId.toString(), userPhone: phone }));
+      io.emit(
+        "status:deleted",
+        JSON.stringify({ statusId: statusId.toString(), userPhone: phone }),
+      );
     } catch (err) {
       console.error(`[${SERVER_NAME}] status:delete error:`, err.message);
     }
   });
 
-  // ── typing indicator ──────────────────────────────────
   socket.on("typing", (msg) => {
     try {
-      const parsed      = JSON.parse(msg);
-      parsed.user       = phone;
+      const parsed = JSON.parse(msg);
+      parsed.user = phone;
       parsed.senderName = name;
-      if (parsed.room) socket.to(parsed.room).emit("typing", JSON.stringify(parsed));
-    } catch { /* ignore */ }
+      if (parsed.room)
+        socket.to(parsed.room).emit("typing", JSON.stringify(parsed));
+    } catch {
+      /* ignore */
+    }
   });
 
-  // ── disconnect ────────────────────────────────────────
   socket.on("disconnect", async () => {
     try {
       const meta = socketMeta[socket.id];
@@ -485,7 +567,6 @@ io.on("connection", async (socket) => {
       delete socketMeta[socket.id];
       if (connections[mPhone] === socket.id) delete connections[mPhone];
 
-      // Remove from Redis meta for every joined room
       for (const room of rooms) {
         await publisher.lRem(`${room}_meta`, 0, mPhone).catch(() => {});
         await publisher.publish("schat-users", room).catch(() => {});
@@ -496,18 +577,35 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // ── WebRTC call signaling ─────────────────────────────
-  socket.on("call:initiate",      ({ toPhone, callType }) => {
-    const online = callRoute(toPhone, "call:incoming", { fromPhone: phone, fromName: name, callType });
+  socket.on("call:initiate", ({ toPhone, callType }) => {
+    const online = callRoute(toPhone, "call:incoming", {
+      fromPhone: phone,
+      fromName: name,
+      callType,
+    });
     if (!online) socket.emit("call:unavailable", { toPhone });
   });
-  socket.on("call:accept",        ({ toPhone }) => callRoute(toPhone, "call:accepted",      { fromPhone: phone, fromName: name }));
-  socket.on("call:reject",        ({ toPhone }) => callRoute(toPhone, "call:rejected",      { fromPhone: phone }));
-  socket.on("call:end",           ({ toPhone }) => callRoute(toPhone, "call:ended",         { fromPhone: phone }));
-  socket.on("call:busy",          ({ toPhone }) => callRoute(toPhone, "call:busy",          { fromPhone: phone }));
-  socket.on("call:offer",         ({ toPhone, offer })      => callRoute(toPhone, "call:offer",         { fromPhone: phone, offer }));
-  socket.on("call:answer",        ({ toPhone, answer })     => callRoute(toPhone, "call:answer",        { fromPhone: phone, answer }));
-  socket.on("call:ice-candidate", ({ toPhone, candidate })  => callRoute(toPhone, "call:ice-candidate", { fromPhone: phone, candidate }));
+  socket.on("call:accept", ({ toPhone }) =>
+    callRoute(toPhone, "call:accepted", { fromPhone: phone, fromName: name }),
+  );
+  socket.on("call:reject", ({ toPhone }) =>
+    callRoute(toPhone, "call:rejected", { fromPhone: phone }),
+  );
+  socket.on("call:end", ({ toPhone }) =>
+    callRoute(toPhone, "call:ended", { fromPhone: phone }),
+  );
+  socket.on("call:busy", ({ toPhone }) =>
+    callRoute(toPhone, "call:busy", { fromPhone: phone }),
+  );
+  socket.on("call:offer", ({ toPhone, offer }) =>
+    callRoute(toPhone, "call:offer", { fromPhone: phone, offer }),
+  );
+  socket.on("call:answer", ({ toPhone, answer }) =>
+    callRoute(toPhone, "call:answer", { fromPhone: phone, answer }),
+  );
+  socket.on("call:ice-candidate", ({ toPhone, candidate }) =>
+    callRoute(toPhone, "call:ice-candidate", { fromPhone: phone, candidate }),
+  );
 });
 
 // ── Redis subscribers ─────────────────────────────────────
@@ -538,13 +636,16 @@ subscriber2.subscribe("schat-rooms", async () => {
 subscriber3.subscribe("schat-users", async (roomName) => {
   try {
     const phones = await publisher.lRange(`${roomName}_meta`, 0, -1);
-    const unique  = [...new Set(phones)];
+    const unique = [...new Set(phones)];
     let users = unique.map((p) => ({ phone: p, name: p }));
     if (unique.length > 0) {
       const names = await publisher.hmGet("schat:users", unique);
       users = unique.map((p, i) => ({ phone: p, name: names[i] || p }));
     }
-    io.to(roomName).emit("roomusers", JSON.stringify({ room: roomName, users }));
+    io.to(roomName).emit(
+      "roomusers",
+      JSON.stringify({ room: roomName, users }),
+    );
   } catch (e) {
     console.error(`[${SERVER_NAME}] schat-users:`, e.message);
   }
@@ -560,7 +661,7 @@ Promise.all([
   .then(() => {
     console.log(`[${SERVER_NAME}] Redis connected`);
     httpServer.listen(PORT, () =>
-      console.log(`[${SERVER_NAME}] Listening on :${PORT}`)
+      console.log(`[${SERVER_NAME}] Listening on :${PORT}`),
     );
   })
   .catch((e) => {
@@ -568,26 +669,27 @@ Promise.all([
     process.exit(1);
   });
 
-// ── Static frontend ───────────────────────────────────────
-app.use(express.static(path.join(__dirname, "frontend/dist")));
-app.get("*", (_req, res) =>
-  res.sendFile(path.join(__dirname, "frontend/dist/index.html"))
-);
+// NOTE: Static frontend serving removed — frontend is served via S3 + CloudFront
 
 // ── Graceful shutdown ─────────────────────────────────────
 const shutdown = (sig) => {
   console.log(`[${SERVER_NAME}] ${sig} — shutting down…`);
   httpServer.close(() => {
     Promise.all([
-      publisher.quit(), subscriber.quit(),
-      subscriber2.quit(), subscriber3.quit(),
+      publisher.quit(),
+      subscriber.quit(),
+      subscriber2.quit(),
+      subscriber3.quit(),
       mongoose.connection.close(),
     ])
-      .then(() => { console.log(`[${SERVER_NAME}] Clean shutdown`); process.exit(0); })
+      .then(() => {
+        console.log(`[${SERVER_NAME}] Clean shutdown`);
+        process.exit(0);
+      })
       .catch(() => process.exit(1));
   });
   setTimeout(() => process.exit(1), 30_000).unref();
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT",  () => shutdown("SIGINT"));
+process.on("SIGINT", () => shutdown("SIGINT"));

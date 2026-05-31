@@ -1,17 +1,6 @@
 # Schat — Distributed Real-Time Chat Application
 
-A production-grade distributed messaging system supporting direct messages, group chat, and broadcast — built with Node.js and React, deployed on AWS with full Infrastructure as Code and CI/CD automation.
-
----
-
-## Live Deployment
-
-| Resource       | URL                                                             |
-| -------------- | --------------------------------------------------------------- |
-| Frontend (CDN) | https://d1mj9oo68irblk.cloudfront.net                           |
-| Backend (ALB)  | http://schat-alb-1427407801.ap-south-1.elb.amazonaws.com        |
-| Health Check   | http://schat-alb-1427407801.ap-south-1.elb.amazonaws.com/health |
-| AWS Region     | ap-south-1 (Mumbai)                                             |
+A production-grade distributed messaging system supporting direct messages, group chat, and broadcast — built with Node.js and React, deployed on AWS with full Infrastructure as Code and CI/CD automation.                                           |
 
 ---
 
